@@ -1,0 +1,8 @@
+backend/data/*.json
+.env
+.env
+__pycache__/
+*.pyc
+node_modules/
+# 민감 데이터: 배포 파이프라인에서 주입하려면 아래 주석 해제
+# backend/data/*.json

@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+pydantic
+pytest
+python-jose[cryptography]
+python-dotenv
+passlib[bcrypt]
+httpx2
