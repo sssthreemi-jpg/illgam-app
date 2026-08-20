@@ -6,3 +6,4 @@ python-jose[cryptography]
 python-dotenv
 passlib[bcrypt]
 httpx2
+playwright

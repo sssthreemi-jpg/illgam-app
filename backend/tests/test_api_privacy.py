@@ -1,8 +1,8 @@
 from fastapi.testclient import TestClient
-from calc import company_list
+from backend.calc import company_list
 import json
 
-from main import app
+from backend.main import app
 
 
 client = TestClient(app)

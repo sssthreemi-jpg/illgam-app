@@ -1,6 +1,4 @@
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from calc import evaluate
+from backend.calc import evaluate
 
 def test_ezmedicom():
     r = evaluate("이지메디컴", 10_000_000_000, 0, 10_000_000_000,

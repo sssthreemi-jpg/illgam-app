@@ -1,8 +1,11 @@
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from calc import evaluate, company_list, SIZES
-from models import LoginRequest, LoginResponse, EvaluateRequest
-from auth import get_current_user, User, authenticate_user, create_access_token
+from fastapi.staticfiles import StaticFiles
+import os
+
+from backend.calc import evaluate, company_list, SIZES
+from backend.models import LoginRequest, LoginResponse, EvaluateRequest
+from backend.auth import get_current_user, User, authenticate_user, create_access_token
 
 app = FastAPI(title="Illgam Tax Checker")
 
@@ -57,3 +60,9 @@ def admin_summary(current: User = Depends(get_current_user)):
         r = evaluate(c, 0, 0, 0, {}, {})
         out.append({"company": c, "taxable": r["taxable"], "gift_tax_total": r["gift_tax_total"]})
     return {"summary": out}
+
+
+# Serve frontend static files in development: mount after API routes so /api/* takes precedence
+FRONTEND_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "frontend"))
+if os.path.isdir(FRONTEND_DIR):
+    app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

@@ -3,32 +3,214 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>일감몰아주기 판정기</title>
-  <style>body{font-family:Arial;margin:20px}label{display:block;margin-top:8px}</style>
+  <title>DAEWOONG - 증여세 판정기</title>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Nanum+Gothic:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    .login-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(#fbfdff,#f7f9fc);z-index:60}
+    .login-card{width:360px;max-width:92vw;background:white;border-radius:12px;padding:28px 28px;box-shadow:0 12px 36px rgba(16,24,40,0.08);border:1px solid rgba(20,30,50,0.04);font-family:'Nanum Gothic',sans-serif}
+    .login-card input{width:100%;padding:12px 14px;border-radius:10px;border:1px solid #eef2f6;background:#fff;outline:none;font-size:14px}
+    .card-logo{height:48px;width:auto;display:block}
+    .login-card button.full{width:100%;padding:12px 14px;border-radius:10px;background:#f2a319;border:none;color:white;font-weight:800;font-size:15px;box-shadow:0 6px 14px rgba(242,163,25,0.12)}
+    .logo-mark{box-shadow:0 6px 18px rgba(16,24,40,0.06)}
+    .muted{color:var(--muted);font-size:13px}
+    :root{--brand:#0b5ed7;--muted:#6b7280;--bg:#f4f6f9;--card:#ffffff}
+    html,body{height:100%}
+    body{font-family:'Nanum Gothic','Noto Sans KR',Inter,Segoe UI,Arial,Helvetica,sans-serif;margin:0;background:var(--bg);color:#0f1724}
+    .wrap{max-width:1100px;margin:28px auto;padding:0;border-radius:8px;overflow:hidden}
+    header{display:flex;align-items:center;gap:18px;padding:18px 24px;background:var(--card);border-left:6px solid var(--brand)}
+    header img{width:100px;height:auto}
+    h1{margin:0;font-size:20px;color:var(--brand);font-weight:700}
+    .muted{color:var(--muted);font-size:13px}
+    .content{display:grid;grid-template-columns:1fr 380px;gap:18px;padding:20px;background:transparent}
+    .card{background:var(--card);border-radius:8px;padding:16px;border:1px solid #e6edf6}
+    .col{padding:6px}
+    label{display:block;margin-bottom:8px;font-weight:600;color:#1f2937}
+    input[type=text], input[type=password], textarea, select{width:100%;padding:10px;border:1px solid #dfe8f6;border-radius:6px;font-size:14px;background:#fbfdff}
+    textarea{min-height:110px;font-family:inherit}
+    button{background:var(--brand);color:#fff;border:0;padding:10px 14px;border-radius:6px;cursor:pointer;font-weight:700}
+    button.secondary{background:#6c757d}
+    #result{background:var(--card);color:#0f1724;padding:12px;border-radius:6px;overflow:auto;min-height:220px;border:1px solid #e6edf6}
+    .field-row{display:flex;gap:8px}
+    .field-row input{flex:1}
+    .hint{font-size:13px;color:var(--muted);margin-top:6px}
+    .sample{background:#f8fbff;border:1px dashed #d6e8ff;padding:8px;border-radius:6px;color:#0b5ed7;font-size:13px}
+    footer{padding:14px 26px;background:#f8fafc;color:#334155;font-size:13px}
+    @media(max-width:980px){.content{grid-template-columns:1fr}header img{width:80px}}
+    /* table styles */
+    table{font-size:14px}
+    #related_table th, #tax_table th{background:#f3f7fb;position:sticky;top:0}
+    #related_table td input, #tax_table td input{border:1px solid #e6eef8;padding:6px;border-radius:4px}
+    #related_table thead th, #tax_table thead th{padding:8px;text-align:left;color:#334155}
+    #related_table tbody tr:nth-child(even), #tax_table tbody tr:nth-child(even){background:#fbfdff}
+  </style>
 </head>
 <body>
-  <h1>일감몰아주기 증여세 판정기</h1>
-  <div id="auth">
-    <h2>로그인</h2>
-    <label>사용자: <input id="username" value="이지메디컴"></label>
-    <label>비밀번호: <input id="password" type="password" value="demo"></label>
-    <button id="login">로그인</button>
+  <div id="login-overlay" class="login-overlay">
+    <div class="login-card">
+      
+      <h2 style="margin:0 0 12px 0;text-align:left;font-size:20px">로그인</h2>
+      <div style="margin-bottom:8px">
+        <label style="font-weight:600;font-size:13px">아이디</label>
+        <input id="username" value="" placeholder="name@example.com">
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="font-weight:600;font-size:13px">비밀번호</label>
+        <input id="password" type="password" value="" placeholder="비밀번호">
+      </div>
+      
+      <div style="margin-bottom:6px"><button id="login" class="full">로그인</button></div>
+      <div style="display:flex;justify-content:center;gap:18px;font-size:13px;color:var(--muted);margin-top:8px">
+        <a href="#" style="color:var(--muted);text-decoration:none">회원가입</a>
+        <span style="color:#f0f0f0">|</span>
+        <a href="#" style="color:var(--muted);text-decoration:none">비밀번호 찾기</a>
+      </div>
+    </div>
   </div>
+  <div class="wrap">
+    <div class="topbar" style="display:flex;justify-content:space-between;align-items:center;padding:12px 18px;background:transparent">
+      <div style="display:flex;gap:8px">
+        <button id="excel-download" style="background:#0f5132;padding:8px 12px;border-radius:6px;border:none;color:#fff">엑셀 다운로드</button>
+        <button id="pdf-download" style="background:#b02a37;padding:8px 12px;border-radius:6px;border:none;color:#fff">PDF 다운로드</button>
+      </div>
+    </div>
+    <header style="padding:18px 24px;background:var(--card);border-left:6px solid var(--brand)">
+      <div style="font-size:20px;font-weight:800;color:#0b2540;letter-spacing:1px">DAEWOONG</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:6px">PHARMACEUTICAL CO.,LTD. · 증여세 판정기</div>
+    </header>
 
-  <div id="app" style="display:none">
-    <h2>내 법인 정보</h2>
-    <div id="mycompany"></div>
-    <h3>판정 입력</h3>
-    <label>법인: <input id="company" value="이지메디컴"></label>
-    <label>세무조정후 영업이익: <input id="operating_income" value="1000000"></label>
-    <label>법인세상당액: <input id="corporate_tax" value="0"></label>
-    <label>총매출: <input id="total_sales" value="1000000"></label>
-    <label>거래처 매출 JSON: <textarea id="related_sales" rows="4">{"대웅제약":900000}</textarea></label>
-    <button id="evaluate">판정</button>
-    <h3>결과</h3>
-    <pre id="result"></pre>
+    <div class="content">
+      <div>
+        <div id="report-summary" class="card" style="margin-bottom:12px;border-left:4px solid var(--brand);min-height:120px;display:flex;flex-direction:column;justify-content:center">
+          <div style="display:flex;align-items:center;justify-content:space-between">
+            <div style="display:flex;align-items:center;gap:12px">
+              <div style="width:14px;height:14px;border-radius:4px;background:var(--brand);"></div>
+              <div style="font-weight:700;color:#0f1724">재무기획본부 학습과 소통</div>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button id="excel-download-top" style="background:#0f5132;padding:6px 10px;border-radius:6px;border:none;color:#fff;font-size:13px">엑셀 다운로드</button>
+              <button id="pdf-download-top" style="background:#b02a37;padding:6px 10px;border-radius:6px;border:none;color:#fff;font-size:13px">PDF 다운로드</button>
+            </div>
+          </div>
+          <div style="margin-top:12px;height:56px;border-radius:6px;background:#fbfdff;border:1px dashed #e6eef8"></div>
+        </div>
+        
+
+        <div id="app" class="card" style="display:none">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <h2 style="margin:0">내 법인 정보 <span class="hint" id="hint"></span></h2>
+            <div id="mycompany" class="hint"></div>
+          </div>
+
+          <h3 style="margin-top:16px">판정 입력</h3>
+          <form onsubmit="return false;">
+            <div class="col">
+              <label for="company">법인</label>
+              <input id="company" value="이지메디컴">
+
+              <label for="operating_income">세무조정후 영업이익 (숫자)</label>
+              <input id="operating_income" value="1000000" placeholder="예: 1000000">
+
+              <label for="tax_adjustments">세무조정 내역 (표로 입력)</label>
+              <div style="margin-bottom:8px;">
+                <button type="button" id="add_tax_row" style="margin-bottom:8px">항목 추가</button>
+                <div style="overflow:auto">
+                  <table id="tax_table" style="width:100%;border-collapse:collapse">
+                    <thead>
+                      <tr>
+                        <th style="text-align:left;padding:6px;border-bottom:1px solid #eee">항목</th>
+                        <th style="text-align:left;padding:6px;border-bottom:1px solid #eee">금액</th>
+                        <th style="text-align:left;padding:6px;border-bottom:1px solid #eee">액션</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td style="padding:6px"><input class="tname" value="감가상각비"></td>
+                        <td style="padding:6px"><input class="tamt" value="56507"></td>
+                        <td style="padding:6px"><button type="button" class="del_tax">삭제</button></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <label for="corporate_tax">법인세상당액 (숫자)</label>
+              <input id="corporate_tax" value="0" placeholder="예: 0">
+
+              <label for="total_sales">총매출 (숫자)</label>
+              <input id="total_sales" value="1000000" placeholder="예: 1000000">
+            </div>
+
+            <div class="col">
+              <label for="related_sales">거래처 매출 (표로 입력)</label>
+              <div style="margin-bottom:8px;">
+                <button type="button" id="add_related_row" style="margin-bottom:8px">행 추가</button>
+                <div style="overflow:auto">
+                  <table id="related_table" style="width:100%;border-collapse:collapse">
+                    <thead>
+                      <tr>
+                        <th style="text-align:left;padding:6px;border-bottom:1px solid #eee">거래처명</th>
+                        <th style="text-align:left;padding:6px;border-bottom:1px solid #eee">매출액</th>
+                        <th style="text-align:left;padding:6px;border-bottom:1px solid #eee">액션</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td style="padding:6px"><input class="rname" value="대웅제약"></td>
+                        <td style="padding:6px"><input class="ramt" value="900000"></td>
+                        <td style="padding:6px"><button type="button" class="del_related">삭제</button></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
+                <button id="evaluate">판정</button>
+                <div class="hint">표 입력을 사용하세요. 필요하면 CSV/JSON 복사 붙여넣기 후 변환 가능.</div>
+              </div>
+            </div>
+          </form>
+
+          <h3 style="margin-top:18px">결과</h3>
+          <div id="result" style="min-height:220px;padding:12px;background:#0b1020;color:#e6eef8;border-radius:8px">결과가 여기에 표시됩니다.</div>
+        </div>
+      </div>
+
+      <aside class="card">
+        <h3 style="margin-top:0">법인별 입력 가이드</h3>
+        <div class="hint">각 법인별로 다음 형식으로 입력하세요.</div>
+        <ul style="margin-top:10px">
+          <li><strong>법인명</strong>: 회사명 입력 (예: 이지메디컴)</li>
+          <li><strong>세무조정후 영업이익</strong>: 정수로 입력 (단위: 원)</li>
+          <li><strong>법인세상당액</strong>: 정수로 입력</li>
+          <li><strong>총매출</strong>: 정수로 입력</li>
+          <li><strong>거래처 매출</strong>: JSON 또는 CSV — 예시 아래 참조</li>
+        </ul>
+
+        <div style="margin-top:12px">
+          <div class="sample">JSON 예: {"대웅제약":900000, "회사B":100000}</div>
+          <div class="sample" style="margin-top:8px">CSV 예: 대웅제약,900000\n회사B,100000</div>
+        </div>
+
+        <hr style="margin:14px 0">
+        <div class="hint">디자인 참고: 노란색 강조와 카드 레이아웃을 적용했습니다.</div>
+      </aside>
+    </div>
+
+    <footer>이 서비스는 데모용입니다. 민감한 원본 데이터는 서버에만 보관됩니다.</footer>
   </div>
 
   <script src="/app.js"></script>
+  <script>
+    // hide fallback mark if external logo loads
+    (function(){
+      const img = document.getElementById('cardLogo');
+      const mark = document.querySelector('.logo-mark');
+      if(!img) return;
+      img.onload = function(){ if(img.naturalWidth>10) { mark.style.display='none'} };
+      img.onerror = function(){ img.style.display='none'; mark.style.display='flex' };
+    })();
+  </script>
 </body>
 </html>
