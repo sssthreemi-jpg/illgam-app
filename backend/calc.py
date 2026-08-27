@@ -23,8 +23,13 @@ EXEMPT = PARAMS["면세점"]
 GENERAL_RELATED_SALES_THRESHOLD = 100_000_000_000
 GENERAL_HIGH_RELATED_RATIO = 0.2
 
+# 개별 법인으로 잡히지 않는 나머지 거래처를 담는 catch-all 이름.
+# 프론트엔드가 별도로 만들어 쓰지 않도록 company_list() 에 포함해 내려보낸다.
+OTHER_COMPANY = "기타법인"
+
+
 def company_list():
-    """거래처 선택용 법인명 목록(+기타). 규모/지분 등 부가정보는 반환하지 않음."""
+    """거래처 선택용 법인명 목록(+기타법인). 규모/지분 등 부가정보는 반환하지 않음."""
     companies = sorted(SIZES.keys())
     if "대웅" in companies:
         companies.remove("대웅")
@@ -32,7 +37,7 @@ def company_list():
     if "HR그룹" in companies:
         companies.remove("HR그룹")
         companies.append("HR그룹")
-    return companies + ["기타"]
+    return companies + [OTHER_COMPANY]
 
 def _gift_tax(base):
     if base < EXEMPT:

@@ -2,6 +2,8 @@ const $ = id => document.getElementById(id)
 let token = null
 let myCompany = null
 let lastReviewInput = null
+// 서버 calc.OTHER_COMPANY 와 같은 문자열이어야 한다. /api/companies 목록에 포함돼 내려온다.
+const OTHER_COMPANY = '기타법인'
 
 function showError(msg){
   const formError = $('form-error')
@@ -125,15 +127,17 @@ async function loadMyCompany(){
     const c = await fetch('/api/companies',{headers: token?{Authorization:'Bearer '+token}:{}})
     if(c.ok){
       const cl = await c.json()
+      const all = cl.companies || []
       companySelect.innerHTML = '<option value="">법인을 선택하세요</option>'
-      const companies = (cl.companies || []).filter(name => name !== '기타')
-      companies.forEach(name=>{
+      // 판정 대상은 실제 법인만 — 기타법인은 거래처(매출 입력)로만 쓰인다.
+      all.filter(name => name !== OTHER_COMPANY).forEach(name=>{
         const option = document.createElement('option')
         option.value = name
         option.textContent = name
         companySelect.appendChild(option)
       })
-      renderRelatedCompanies(companies)
+      // 거래처 표는 서버 목록을 그대로 쓴다. 프론트에서 이름을 만들지 않는다.
+      renderRelatedCompanies(all)
     }
   }catch(e){ /* ignore */ }
 
@@ -156,7 +160,7 @@ async function loadMyCompany(){
 function renderRelatedCompanies(companies){
   const tbody = document.querySelector('#related_table tbody')
   if(!tbody) return
-  tbody.innerHTML = [...companies, '기타법인'].map(name => `
+  tbody.innerHTML = companies.map(name => `
     <tr data-company="${escapeHtml(name)}"><td>${escapeHtml(name)}</td><td><input class="ramt" type="number" min="0" value="0" placeholder="0"></td></tr>
   `).join('')
 }

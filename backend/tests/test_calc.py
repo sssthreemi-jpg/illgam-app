@@ -1,4 +1,4 @@
-from backend.calc import evaluate
+from backend.calc import evaluate, company_list, OTHER_COMPANY, SIZES
 
 def test_ezmedicom():
     r = evaluate("이지메디컴", 10_000_000_000, 0, 10_000_000_000,
@@ -53,6 +53,22 @@ def test_tax_adjustments_omitted_keeps_previous_behaviour():
                      {"대웅제약": 5_000_000_000})["gift_tax_total"]
             == evaluate("대웅펫", 5_000_000_000, 0, 8_000_000_000,
                         {"대웅제약": 5_000_000_000}, None, {})["gift_tax_total"])
+
+
+def test_company_list_ends_with_other_company_catch_all():
+    """거래처 catch-all 이름은 서버가 정의해 목록에 실어 보낸다(프론트엔드가 만들지 않는다)."""
+    companies = company_list()
+    assert companies[-1] == OTHER_COMPANY
+    assert companies.count(OTHER_COMPANY) == 1
+    assert OTHER_COMPANY not in SIZES, "catch-all 은 판정 대상 법인이 될 수 없다"
+
+
+def test_other_company_sales_count_as_related_without_exclusion():
+    """기타법인 매출은 특관매출에 전액 잡히고, 지분 데이터가 없으므로 제외분은 생기지 않는다."""
+    r = evaluate("이지메디컴", 10_000_000_000, 0, 10_000_000_000,
+                 {OTHER_COMPANY: 4_000_000_000})
+    assert r["related_sales_total"] == 4_000_000_000
+    assert r["related_sales_ratio"] == 0.4
 
 
 if __name__ == "__main__":

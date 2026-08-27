@@ -30,7 +30,7 @@ def login(req: LoginRequest):
 
 @app.get("/api/companies")
 def get_companies(current: User = Depends(get_current_user)):
-    # Return only names + '기타'
+    # Return only names + '기타법인' (catch-all). No size/ownership data.
     return {"companies": company_list()}
 
 

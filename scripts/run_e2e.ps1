@@ -1,4 +1,4 @@
-# Run this after activating the venv and starting the backend server
+﻿# Run this after activating the venv and starting the backend server
 # Installs playwright browsers on first run
 .
 if (-not (Get-Command python -ErrorAction SilentlyContinue)) { Write-Error "Python not found"; exit 1 }

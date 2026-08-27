@@ -1,4 +1,4 @@
-Param()
+﻿Param()
 $base = Split-Path -Parent $MyInvocation.MyCommand.Path
 # backend 는 패키지이므로 저장소 루트에서 실행해야 `import backend.*` 가 해결된다.
 $root = (Resolve-Path (Join-Path $base "..")).Path

@@ -1,4 +1,4 @@
-Param()
+﻿Param()
 Write-Host "Setting up Illgam app (Windows)"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
