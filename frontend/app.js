@@ -2,7 +2,6 @@ const $ = id => document.getElementById(id)
 let token = null
 let myCompany = null
 let lastReviewInput = null
-const $select = id => document.getElementById(id)
 
 function showError(msg){
   const formError = $('form-error')
@@ -11,14 +10,8 @@ function showError(msg){
     return
   }
   const el = $('result')
-  el.innerHTML = `<div style="color:#b91c1c;font-weight:700">오류</div><div style="margin-top:6px">${msg}</div>`
+  el.innerHTML = `<div style="color:#b91c1c;font-weight:700">오류</div><div style="margin-top:6px">${escapeHtml(msg)}</div>`
   el.style.borderColor = '#f8d7da'
-}
-
-function showResult(obj){
-  const el = $('result')
-  el.innerHTML = `<pre style="white-space:pre-wrap;margin:0">${escapeHtml(JSON.stringify(obj, null, 2))}</pre>`
-  el.style.borderColor = '#dbefff'
 }
 
 async function post(path, body){
@@ -31,92 +24,63 @@ async function post(path, body){
   return data
 }
 
+function showLoginError(msg){
+  const el = $('login-error')
+  if(el) el.textContent = msg
+}
+
+// 로그인은 서버 인증만 사용한다. 이 화면 자체를 백엔드가 서빙하므로(StaticFiles 마운트)
+// 페이지가 열렸다면 API 는 이미 떠 있다 — 개발용 mock 로그인은 반쪽짜리 세션만 만들어 제거했다.
 $('login').onclick = async ()=>{
   const username = $('username').value
   const password = $('password').value
-  if(!username || !password){ showError('사용자명과 비밀번호를 입력하세요'); return }
+  showLoginError('')
+  if(!username || !password){ showLoginError('사용자명과 비밀번호를 입력하세요'); return }
   try{
-    // try real API first
-    const res = await fetch('/api/auth/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({username,password})})
-    if(res.ok){
-      const j = await res.json(); if(j && j.access_token){ token = j.access_token; document.getElementById('login-overlay').style.display='none'; document.getElementById('app').style.display='block'; await loadMyCompany(); return }
-    }
-  }catch(e){ /* ignore and fallback to mock */ }
-
-  // fallback mock for development
-  if(username === 'admin' && password === 'adminpass'){
-    token = 'dev-token-admin'
-    document.getElementById('login-overlay').style.display='none'
-    document.getElementById('app').style.display='block'
-    myCompany = {company:'admin'}
-    $('rawdata-button').style.display = 'inline-block'
-    $('mycompany').textContent = JSON.stringify(myCompany)
-    $('company').value = myCompany.company
-    $('company').removeAttribute('disabled')
-    return
+    const j = await post('/api/auth/login', {username, password})
+    if(!j || !j.access_token) throw new Error('서버 응답에 토큰이 없습니다')
+    token = j.access_token
+    $('login-overlay').style.display = 'none'
+    $('app').style.display = 'block'
+    await loadMyCompany()
+  }catch(e){
+    token = null
+    showLoginError(e.message || '로그인에 실패했습니다')
   }
-  // other mock: accept any non-empty creds in dev
-  if(window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost'){
-    token = 'dev-token'
-    document.getElementById('login-overlay').style.display='none'
-    document.getElementById('app').style.display='block'
-    myCompany = {company: username}
-    $('mycompany').textContent = JSON.stringify(myCompany)
-    $('company').value = myCompany.company
-    if(myCompany.company !== 'admin') $('company').setAttribute('disabled','true')
-    $('rawdata-button').style.display = 'none'
-    return
-  }
-  showError('로그인 실패')
 }
 
-// related_format picker: update textarea placeholder/sample
-const relatedFormatEl = document.getElementById('related_format')
-const relatedSalesEl = document.getElementById('related_sales')
-if(relatedFormatEl && relatedSalesEl){
-  relatedFormatEl.addEventListener('change', ()=>{
-    const v = relatedFormatEl.value
-    if(v === 'json'){
-      relatedSalesEl.value = '{"대웅제약":900000}'
-    } else {
-      relatedSalesEl.value = '대웅제약,900000\n회사B,100000'
-    }
-  })
-}
+// 로그인 카드는 <form> 이 아니라 Enter 가 먹지 않는다. 두 입력란 모두에서 Enter 로 제출되게 한다.
+;['username','password'].forEach(id=>{
+  $(id)?.addEventListener('keydown', e=>{ if(e.key === 'Enter'){ e.preventDefault(); $('login').click() } })
+})
 
 // Table helpers for related sales and tax adjustments
+// 0 인 행은 계산에 영향이 없고(서버가 0 매출을 건너뛴다) 결과 리포트만 지저분하게 만들어 제외한다.
 function getRelatedFromTable(){
   const tbody = document.querySelector('#related_table tbody')
-  if(!tbody) return null
+  if(!tbody) return {}
   const related = {}
   Array.from(tbody.querySelectorAll('tr')).forEach(tr=>{
     const name = tr.dataset.company || ''
     const amtEl = tr.querySelector('.ramt')
     const amt = Number(amtEl && amtEl.value ? amtEl.value : 0)
-    if(name) related[name] = amt
+    if(name && amt) related[name] = amt
   })
   return related
 }
 
 function getTaxFromTable(){
   const tbody = document.querySelector('#tax_table tbody')
-  if(!tbody) return null
+  if(!tbody) return {}
   const obj = {}
   Array.from(tbody.querySelectorAll('tr')).forEach(tr=>{
     const name = tr.dataset.taxItem || ''
     const amtEl = tr.querySelector('.tamt')
     const amt = Number(amtEl && amtEl.value ? amtEl.value : 0)
-    if(name) obj[name] = amt
+    if(name && amt) obj[name] = amt
   })
   return obj
 }
-
-// add/remove row handlers
-document.addEventListener('click', (e)=>{
-  if(e.target && e.target.id === 'add_tax_row'){
-    return
-  }
-})
 
 document.addEventListener('input', (e)=>{
   if(e.target && e.target.classList.contains('tamt')) updateTaxTotal()
@@ -131,12 +95,15 @@ function updateTaxTotal(){
 // Download handlers: simple CSV export and print
 document.getElementById('excel-download')?.addEventListener('click', ()=>{
   // build CSV from related and tax tables
-  const related = getRelatedFromTable() || {}
-  const tax = getTaxFromTable() || {}
-  let csv = 'Section,Name,Amount\n'
-  Object.entries(related).forEach(([k,v])=> csv += `Related,${k},${v}\n`)
-  Object.entries(tax).forEach(([k,v])=> csv += `TaxAdjust,${k},${v}\n`)
-  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const related = getRelatedFromTable()
+  const tax = getTaxFromTable()
+  const cell = s => `"${String(s).replace(/"/g,'""')}"`
+  let csv = '구분,항목,금액\n'
+  Object.entries(related).forEach(([k,v])=> csv += `특수관계자매출,${cell(k)},${v}\n`)
+  Object.entries(tax).forEach(([k,v])=> csv += `세무조정,${cell(k)},${v}\n`)
+  // Excel 은 BOM 이 없는 UTF-8 CSV 를 ANSI 로 열어 한글이 깨진다.
+  const BOM = String.fromCharCode(0xFEFF)
+  const blob = new Blob([BOM + csv], {type:'text/csv;charset=utf-8;'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href = url; a.download = 'report_export.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
 })
@@ -150,10 +117,9 @@ async function loadMyCompany(){
   if(!res.ok){ showError('내 법인 정보를 불러오지 못했습니다'); return }
   const j = await res.json()
   myCompany = j
-  $('mycompany').textContent = JSON.stringify(j)
+  $('mycompany').textContent = j.size ? `${j.company} · ${j.size}` : (j.company || '')
   $('hint').textContent = ''
   const companySelect = $('company')
-  const companySize = $('company_size')
   // Populate only the public company-name list. Sensitive ownership data stays server-side.
   try{
     const c = await fetch('/api/companies',{headers: token?{Authorization:'Bearer '+token}:{}})
@@ -175,14 +141,15 @@ async function loadMyCompany(){
     companySelect.value = j.company || ''
     companySelect.setAttribute('disabled','true')
     $('hint').textContent = '(관리자 아님 — 법인 필드 잠김)'
+    // 기업 구분은 서버가 보유한 값이 유일한 근거다. 관리자는 법인을 바꿀 수 있어
+    // 판정 전까지 알 수 없으므로, 최종 표시는 응답의 size(renderReport)를 따른다.
+    if(j.size && ['일반','중견','중소'].includes(j.size)) $('company_size').value = j.size
   } else {
     $('rawdata-button').style.display = 'inline-block'
     companySelect.removeAttribute('disabled')
     if(companySelect.options.length > 1 && !companySelect.value) companySelect.value = companySelect.options[1].value
-  }
-  updateCompanySize()
-  if(j.company !== 'admin' && j.size && ['일반','중견','중소'].includes(j.size)){
-    $('company_size').value = j.size
+    // 관리자는 법인을 바꿀 수 있어 판정 전에는 기업 구분을 알 수 없다.
+    $('company_size').value = ''
   }
 }
 
@@ -194,34 +161,11 @@ function renderRelatedCompanies(companies){
   `).join('')
 }
 
-function updateCompanySize(){
-  const selected = $('company') && $('company').selectedOptions[0]
-  const size = selected && selected.dataset.size
-  if($('company_size') && size) $('company_size').value = size
-}
-
-$('company')?.addEventListener('change', updateCompanySize)
-
 $('evaluate').onclick = async ()=>{
   if($('form-error')) $('form-error').textContent = ''
   // validation
   try{
-    // read related sales from table if present, otherwise fallback to textarea/csv/json
-    let related = {}
-    const tableRelated = getRelatedFromTable()
-    if(tableRelated && Object.keys(tableRelated).length>0){
-      related = tableRelated
-    } else {
-      const rawRelated = (document.getElementById('related_sales') && document.getElementById('related_sales').value) || ''
-      if(($select('related_format') && $select('related_format').value === 'csv') || (rawRelated.indexOf('\n') !== -1 && rawRelated.indexOf('{') === -1)){
-        rawRelated.split(/\r?\n/).forEach(line=>{
-          const [name,amt] = line.split(',').map(s=>s && s.trim())
-          if(name){ related[name] = Number(amt || 0) }
-        })
-      } else {
-        try{ related = JSON.parse(rawRelated || '{}') }catch(e){ related = {} }
-      }
-    }
+    const related = getRelatedFromTable()
     const company = $('company').value
     if(!company){ showError('법인을 선택하세요'); return }
     // ensure company matches logged-in user's company unless admin
@@ -234,13 +178,7 @@ $('evaluate').onclick = async ()=>{
     }
     if(total_sales < 0 || operating_income < 0 || corporate_tax < 0){ showError('음수 값은 허용되지 않습니다'); return }
 
-    // read tax adjustments from table if present, otherwise fallback to textarea
-    let tax_adjustments = {}
-    const tableTax = getTaxFromTable()
-    if(tableTax && Object.keys(tableTax).length>0){ tax_adjustments = tableTax }
-    else {
-      try{ tax_adjustments = JSON.parse(($('tax_adjustments') && $('tax_adjustments').value) || '{}') }catch(e){ tax_adjustments = {} }
-    }
+    const tax_adjustments = getTaxFromTable()
 
     const body = {
       company, operating_income, corporate_tax, total_sales, related_sales: related, tax_adjustments
@@ -248,7 +186,8 @@ $('evaluate').onclick = async ()=>{
     const reviewPath = myCompany && myCompany.company === 'admin' ? '/api/admin/evaluate-review' : '/api/evaluate'
     const r = await post(reviewPath, body)
     if(r && typeof r === 'object' && r.company && r.reason) {
-      lastReviewInput = {company, companySize: $('company_size').value, operating_income, corporate_tax, total_sales, related, tax_adjustments}
+      // 기업 구분은 서버가 판정한 값(r.size)이 정본이다. 화면 선택값은 응답이 없을 때만 쓴다.
+      lastReviewInput = {company, companySize: r.size || $('company_size').value, operating_income, corporate_tax, total_sales, related, tax_adjustments}
       const isAdmin = myCompany && myCompany.company === 'admin'
       renderReport(r, {...lastReviewInput, isAdmin})
       $('rawdata-button').style.display = isAdmin ? 'inline-block' : 'none'
@@ -326,7 +265,7 @@ function renderReport(r, input){
         특수관계 매출 비율 = 특수관계 매출 합계 ÷ 총매출<br>
         증여의제 금액 = 세후 영업이익 × 조정 비율 × 보유 요건 반영값<br>
         산출 증여세 = 증여의제 금액에 세율 및 누진공제 적용<br>
-        <span class="muted">※ 실제 지분율과 주주별 원본 데이터는 보안상 화면에 표시하지 않습니다.</span>
+        <span class="muted">※ 아래 주주별 상세(실명·지분율)는 관리자 인증에서만 노출됩니다. 일반 사용자 화면과 RAWDATA 화면에는 표시되지 않습니다.</span>
       </div>
       <div class="report-section" style="overflow:auto"><h3>주주별 계산 상세</h3>
         <table class="report-table detail-table"><thead><tr><th>구분</th><th>지분율</th><th>과세제외매출</th><th>제외 후 특수관계 매출 비율</th><th>세후 영업이익</th><th>증여의제이익</th><th>산출 증여세</th><th>판정</th></tr></thead><tbody>
@@ -377,4 +316,9 @@ function renderReport(r, input){
   `
 }
 
-function escapeHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
+// 속성값 안에도 삽입되므로(data-company="...") 따옴표까지 이스케이프한다.
+function escapeHtml(s){
+  return String(s === undefined || s === null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;')
+}

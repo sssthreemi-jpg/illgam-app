@@ -4,16 +4,12 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>DAEWOONG - 증여세 검토</title>
-  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Nanum+Gothic:wght@400;700&display=swap" rel="stylesheet">
   <style>
     .login-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(#fbfdff,#f7f9fc);z-index:60}
     .login-card{width:360px;max-width:92vw;background:white;border-radius:12px;padding:28px 28px;box-shadow:0 12px 36px rgba(16,24,40,0.08);border:1px solid rgba(20,30,50,0.04);font-family:'Nanum Gothic',sans-serif}
     .login-card input{width:100%;padding:12px 14px;border-radius:10px;border:1px solid #eef2f6;background:#fff;outline:none;font-size:14px}
-    .card-logo{height:48px;width:auto;display:block}
     .login-card button.full{width:100%;padding:12px 14px;border-radius:10px;background:#f2a319;border:none;color:white;font-weight:800;font-size:15px;box-shadow:0 6px 14px rgba(242,163,25,0.12)}
-    .logo-mark{box-shadow:0 6px 18px rgba(16,24,40,0.06)}
-    .muted{color:var(--muted);font-size:13px}
     :root{--brand:#1264d6;--brand-dark:#0b3f91;--accent:#f2a319;--muted:#64748b;--bg:#f3f6fa;--card:#fff;--line:#dfe7f1;--soft:#f7faff}
     *,*:before,*:after{box-sizing:border-box}
     html,body{height:100%}
@@ -104,7 +100,7 @@
         <label style="font-weight:600;font-size:13px">비밀번호</label>
         <input id="password" type="password" value="" placeholder="비밀번호">
       </div>
-      
+      <div id="login-error" class="form-error" role="alert" aria-live="polite"></div>
       <div style="margin-bottom:6px"><button id="login" class="full">로그인</button></div>
       <div style="display:flex;justify-content:center;gap:18px;font-size:13px;color:var(--muted);margin-top:8px">
         <a href="#" style="color:var(--muted);text-decoration:none">회원가입</a>
@@ -140,11 +136,13 @@
                 </div>
                 <div>
                   <label for="company_size">기업 구분</label>
-                  <select id="company_size">
+                  <select id="company_size" disabled>
+                    <option value="">(서버 판정)</option>
                     <option value="일반">일반</option>
                     <option value="중견">중견</option>
                     <option value="중소">중소</option>
                   </select>
+                  <div class="hint">서버에 보관된 법인 데이터로 판정되며 직접 고를 수 없습니다.</div>
                 </div>
                 <div>
                   <label for="total_sales">총매출 (원)</label>
@@ -214,23 +212,22 @@
       </div>
 
       <aside class="card">
-        <h3 style="margin-top:0">법인별 입력 가이드</h3>
-        <div class="hint">각 법인별로 다음 형식으로 입력하세요.</div>
+        <h3 style="margin-top:0">입력 가이드</h3>
+        <div class="hint">금액은 모두 원 단위 정수로 입력하세요.</div>
         <ul style="margin-top:10px">
-          <li><strong>법인명</strong>: 회사명 입력 (예: 이지메디컴)</li>
-          <li><strong>세무조정후 영업이익</strong>: 정수로 입력 (단위: 원)</li>
-          <li><strong>법인세상당액</strong>: 정수로 입력</li>
-          <li><strong>총매출</strong>: 정수로 입력</li>
-          <li><strong>거래처 매출</strong>: JSON 또는 CSV — 예시 아래 참조</li>
+          <li><strong>영업이익</strong>: 세무조정 <em>전</em> 금액입니다. 조정액은 3번에 따로 입력하세요.</li>
+          <li><strong>총매출</strong>: 해당 사업연도 전체 매출액</li>
+          <li><strong>특수관계자 세부매출</strong>: 거래처별 매출을 표에 입력합니다. 거래가 없으면 0으로 두세요.</li>
+          <li><strong>세무조정내역</strong>: 가산은 양수, 차감은 음수 (예: -3500000)</li>
+          <li><strong>법인세 상당액</strong>: 세후영업이익에서 차감됩니다.</li>
         </ul>
 
         <div style="margin-top:12px">
-          <div class="sample">JSON 예: {"대웅제약":900000, "회사B":100000}</div>
-          <div class="sample" style="margin-top:8px">CSV 예: 대웅제약,900000\n회사B,100000</div>
+          <div class="sample">세후영업이익 = 영업이익 ± 세무조정금액 − 법인세 상당액</div>
         </div>
 
         <hr style="margin:14px 0">
-        <div class="hint">디자인 참고: 노란색 강조와 카드 레이아웃을 적용했습니다.</div>
+        <div class="hint">법인·기업 구분과 지분 데이터는 서버에 보관된 값을 사용하며 화면에서 수정할 수 없습니다.</div>
       </aside>
     </div>
 
@@ -262,16 +259,6 @@
     <footer>이 서비스는 데모용입니다. 민감한 원본 데이터는 서버에만 보관됩니다.</footer>
   </div>
 
-  <script src="/app.js?v=20260826-1"></script>
-  <script>
-    // hide fallback mark if external logo loads
-    (function(){
-      const img = document.getElementById('cardLogo');
-      const mark = document.querySelector('.logo-mark');
-      if(!img) return;
-      img.onload = function(){ if(img.naturalWidth>10) { mark.style.display='none'} };
-      img.onerror = function(){ img.style.display='none'; mark.style.display='flex' };
-    })();
-  </script>
+  <script src="/app.js?v=20260827-1"></script>
 </body>
 </html>

@@ -121,6 +121,9 @@ def evaluate_admin_review(company, operating_income, corporate_tax, total_sales,
     indirect_invest = indirect_invest or {}
     after_tax_base = _after_tax_base(operating_income, corporate_tax, tax_adjustments)
     owned = INTER.get(company, {})
+    # 제10항 제외분은 지배주주와 무관하게 모두에게 동일하게 빠지는 '공통' 제외분이다.
+    common_exclusion = sum((sales or 0) for name, sales in related_sales.items()
+                           if owned.get(name, 0) > 0)
     exclusions = []
     adjusted_ratios = []
     shareholder_details = []
@@ -153,7 +156,7 @@ def evaluate_admin_review(company, operating_income, corporate_tax, total_sales,
         })
 
     result.update({
-        "excluded_sales_common": round(min(exclusions) if exclusions else 0),
+        "excluded_sales_common": round(common_exclusion),
         "excluded_sales_min": round(min(exclusions) if exclusions else 0),
         "excluded_sales_max": round(max(exclusions) if exclusions else 0),
         "adjusted_related_ratio_min": min(adjusted_ratios) if adjusted_ratios else 0,
