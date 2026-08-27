@@ -15,7 +15,9 @@ def test_privacy_fields():
         "gift_tax_total",
         "reason",
         # 과세제외 내역: 사유·조문과, 주주 무관하게 동일한 건(⑩/§18)의 적용률·금액만 담긴다.
-        # 주주별 적용률(=지분율)은 관리자 응답에만 실린다.
+        # ⑭ 지분율 상당액은 거래처별 금액 대신 아래 합계 범위로만 제공한다.
         "exclusion_details",
+        "ratio_exclusion_total_min",
+        "ratio_exclusion_total_max",
     }
     assert set(r.keys()) <= allowed, f"응답에 허용되지 않은 필드 존재: {set(r.keys()) - allowed}"

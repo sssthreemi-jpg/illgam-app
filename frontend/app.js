@@ -255,16 +255,28 @@ function renderReport(r, input){
     <tr><td>${escapeHtml(name)}</td><td class="amount">${formatNum(amount)}원</td></tr>`).join('')
   const emptyRow = '<tr><td colspan="2" class="muted">입력된 내역이 없습니다.</td></tr>'
   const pct = v => `${(Number(v) * 100).toFixed(2)}%`
-  // ⑩/§18 은 주주 무관하게 같은 율이라 rate 에 단일값이 오고,
-  // ⑭ 지분율 상당액은 주주마다 달라 rate 가 null 이므로 min~max 범위로 표시한다.
-  const exclusionRows = (r.exclusion_details || []).map(d => {
-    const single = d.rate !== null && d.rate !== undefined
-    const rate = single ? pct(d.rate) : `${pct(d.rate_min)} ~ ${pct(d.rate_max)}`
-    const amount = single
-      ? `${formatNum(d.excluded_sales)}원`
-      : `${formatNum(d.excluded_sales_min)}원 ~ ${formatNum(d.excluded_sales_max)}원`
+  // ⑩·§18 은 주주 무관하게 100% 라 지분율 정보가 없으므로 금액을 그대로 보여준다.
+  // ⑭ 지분율 상당액은 (금액 ÷ 매출액) 으로 지분율이 역산되므로 일반 응답에는 값이 오지 않고,
+  // 관리자 응답에만 범위(rate_min/max)가 실린다.
+  const exclusionList = r.exclusion_details || []
+  const exclusionRows = exclusionList.map(d => {
+    let rate, amount
+    if(d.rate !== null && d.rate !== undefined){
+      rate = pct(d.rate)
+      amount = `${formatNum(d.excluded_sales)}원`
+    } else if(d.rate_min !== undefined){
+      rate = `${pct(d.rate_min)} ~ ${pct(d.rate_max)}`
+      amount = `${formatNum(d.excluded_sales_min)}원 ~ ${formatNum(d.excluded_sales_max)}원`
+    } else {
+      rate = '<span class="muted">주주별 상이</span>'
+      amount = '<span class="muted">합계만 표시</span>'
+    }
     return `<tr><td>${escapeHtml(d.counterparty)}</td><td class="amount">${formatNum(d.sales)}원</td><td>${escapeHtml(d.reason)}</td><td>${escapeHtml(d.article)}</td><td class="amount">${rate}</td><td class="amount">${amount}</td></tr>`
   }).join('')
+  const hasRatioRows = exclusionList.some(d => d.rate === null || d.rate === undefined)
+  const ratioTotalRow = hasRatioRows && r.ratio_exclusion_total_max !== undefined
+    ? `<tr class="total-row"><th colspan="5">⑭ 지분율 상당액 합계</th><td class="amount">${formatNum(r.ratio_exclusion_total_min)}원 ~ ${formatNum(r.ratio_exclusion_total_max)}원</td></tr>`
+    : ''
   const emptyExclusionRow = '<tr><td colspan="6" class="muted">입력된 특수관계자 매출이 없습니다.</td></tr>'
   const taxTotal = Object.values(input.tax_adjustments || {}).reduce((sum, v) => sum + (Number(v) || 0), 0)
   const taxTotalRow = taxRows ? `<tr class="total-row"><th>합계 (영업이익 가감액)</th><td class="amount">${formatNum(taxTotal)}원</td></tr>` : ''
@@ -325,9 +337,9 @@ function renderReport(r, input){
 
     <section class="report-section"><h3>4. 과세제외 내역</h3>
       <div style="overflow:auto">
-        <table class="report-table exclusion-table"><thead><tr><th>거래처명</th><th>매출액</th><th>과세제외 사유</th><th>적용 조문</th><th>적용률</th><th>과세제외매출액</th></tr></thead><tbody>${exclusionRows || emptyExclusionRow}</tbody></table>
+        <table class="report-table exclusion-table"><thead><tr><th>거래처명</th><th>매출액</th><th>과세제외 사유</th><th>적용 조문</th><th>적용률</th><th>과세제외매출액</th></tr></thead><tbody>${exclusionRows || emptyExclusionRow}${ratioTotalRow}</tbody></table>
       </div>
-      <div class="hint">⑩ 기본 과세제외를 먼저 판정하고, 해당하지 않는 거래처만 ⑭ 추가 과세제외를 적용합니다. 사유가 겹치면 합산하지 않고 과세제외금액이 가장 큰 하나만 적용합니다. ⑭ 지분율 상당액은 지배주주마다 적용률이 달라 최소~최대 범위로 표시합니다.${input.isAdmin ? ' 주주별 상세는 아래 관리자 검토 항목을 참고하세요.' : ''}</div>
+      <div class="hint">⑩ 기본 과세제외를 먼저 판정하고, 해당하지 않는 거래처만 ⑭ 추가 과세제외를 적용합니다. 사유가 겹치면 합산하지 않고 과세제외금액이 가장 큰 하나만 적용합니다. ⑭ 지분율 상당액은 지배주주마다 적용률이 달라 ${input.isAdmin ? '최소~최대 범위로 표시하며, 주주별 상세는 아래 관리자 검토 항목을 참고하세요.' : '거래처별 값 대신 합계 범위로 표시합니다.'}</div>
     </section>
 
     <section class="report-section"><h3>5. 세무조정내역</h3>

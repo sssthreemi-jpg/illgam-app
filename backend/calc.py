@@ -98,6 +98,28 @@ def exclusion_for(company, counterparty, sales, shareholder):
             "rate": rate, "excluded_sales": sales * rate}
 
 
+def _ratio_exclusion_totals(details):
+    """⑭ 지분율 상당액이 적용된 건들만 모은 지배주주별 과세제외 합계.
+
+    거래처별 금액을 일반 사용자에게 주면 (금액 ÷ 매출액) 으로 지분율이 그대로 역산된다.
+    여러 거래처가 섞인 합계는 개별 지분율로 분해되지 않으므로 이 값만 공개한다.
+    """
+    totals = {code: 0.0 for code in CODES}
+    for d in details:
+        if d["rate"] is not None:      # ⑩·§18 처럼 주주 무관하게 같은 율인 건은 대상 아님
+            continue
+        for entry in d["by_shareholder"]:
+            totals[entry["code"]] += entry["excluded_sales"]
+    return totals
+
+
+def _public_detail(d):
+    """일반 응답용 축약. ⑩·§18 은 적용률이 100% 라 지분율 정보가 없어 금액을 그대로 싣고,
+    ⑭ 지분율 상당액은 거래처별 금액·범위를 모두 빼고 합계로만 제공한다."""
+    return {k: d[k] for k in ("counterparty", "sales", "reason", "article",
+                              "rate", "excluded_sales")}
+
+
 def _exclusions(company, related_sales):
     """거래처 전체를 훑어 (특관매출 합계, 지배주주별 과세제외 합계, 거래처별 내역)을 만든다."""
     teuk = 0.0
@@ -168,6 +190,7 @@ def evaluate(company, operating_income, corporate_tax, total_sales,
     size = SIZES[company]
 
     teuk, excluded_by_code, details = _exclusions(company, related_sales)
+    ratio_totals = _ratio_exclusion_totals(details)
 
     after_tax_base = _after_tax_base(operating_income, corporate_tax, tax_adjustments)
     normal_ratio = _normal_ratio(size, teuk)
@@ -193,10 +216,11 @@ def evaluate(company, operating_income, corporate_tax, total_sales,
         "deemed_gift_total": round(deemed_total),
         "gift_tax_total": tax_total,
         "reason": _reason(size, teuk, total_sales, normal_ratio, tax_total),
-        # 과세제외 사유·조문·적용률·제외매출액(주주별로 다른 건은 min/max 범위).
-        # 주주별 내역(by_shareholder)만 뺀다 — 지배주주 개인별 지분율이 그대로 드러나기 때문.
-        "exclusion_details": [{k: v for k, v in d.items() if k != "by_shareholder"}
-                              for d in details],
+        # 거래처별 과세제외 사유·조문. 적용률·금액은 ⑩·§18(100%) 건만 채워지고
+        # ⑭ 지분율 상당액 건은 None 이며, 아래 합계 범위로 대신 제공한다.
+        "exclusion_details": [_public_detail(d) for d in details],
+        "ratio_exclusion_total_min": round(min(ratio_totals.values())),
+        "ratio_exclusion_total_max": round(max(ratio_totals.values())),
     }
 
 

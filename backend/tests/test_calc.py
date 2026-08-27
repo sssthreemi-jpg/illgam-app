@@ -116,24 +116,45 @@ def test_exclusion_details_expose_reason_article_rate_and_amount():
     r = evaluate("이지메디컴", 10_000_000_000, 0, 10_000_000_000,
                  {"대웅제약": 9_000_000_000})
     detail = next(d for d in r["exclusion_details"] if d["counterparty"] == "대웅제약")
-    assert set(detail) == {"counterparty", "sales", "reason", "article", "rate", "excluded_sales",
-                           "rate_min", "rate_max", "excluded_sales_min", "excluded_sales_max"}
-    # 주주마다 적용률이 다른 건은 단일 적용률을 낼 수 없으므로 None 이고, 범위로 대신한다.
-    assert detail["rate"] is None
-    assert detail["excluded_sales"] is None
+    assert set(detail) == {"counterparty", "sales", "reason", "article", "rate", "excluded_sales"}
     assert detail["reason"] == calc.REASON_14_RATIO
-    assert 0 <= detail["rate_min"] < detail["rate_max"] < 1
-    assert detail["excluded_sales_min"] < detail["excluded_sales_max"] < detail["sales"]
 
 
-def test_uniform_exclusion_reports_single_rate_and_range_agree(monkeypatch):
-    """⑩·§18 처럼 주주 무관하게 같은 율인 건은 단일값과 범위가 일치해야 한다."""
-    monkeypatch.setitem(calc.SECTION18, "이지메디컴", {"대웅제약"})
+def test_ratio_exclusion_amounts_are_hidden_from_public_payload():
+    """⑭ 지분율 상당액은 (금액 ÷ 매출액) 으로 지분율이 역산되므로 거래처별 값을 주지 않는다."""
     r = evaluate("이지메디컴", 10_000_000_000, 0, 10_000_000_000,
                  {"대웅제약": 9_000_000_000})
     detail = next(d for d in r["exclusion_details"] if d["counterparty"] == "대웅제약")
-    assert detail["rate"] == detail["rate_min"] == detail["rate_max"] == 1.0
-    assert detail["excluded_sales"] == detail["excluded_sales_min"] == detail["excluded_sales_max"]
+    assert detail["rate"] is None
+    assert detail["excluded_sales"] is None
+    for leaked in ("rate_min", "rate_max", "excluded_sales_min", "excluded_sales_max",
+                   "by_shareholder"):
+        assert leaked not in detail, leaked
+    # 합계는 여러 거래처가 섞여 개별 지분율로 분해되지 않으므로 공개한다.
+    assert r["ratio_exclusion_total_max"] > 0
+    assert r["ratio_exclusion_total_min"] <= r["ratio_exclusion_total_max"]
+
+
+def test_section10_amount_stays_visible_in_public_payload():
+    """⑩ 은 적용률이 100% 라 지분율 정보가 없다 — 거래처별 금액을 그대로 노출한다."""
+    r = evaluate("이지메디컴", 10_000_000_000, 0, 10_000_000_000,
+                 {"에비슨케어": 1_000_000_000})
+    detail = next(d for d in r["exclusion_details"] if d["counterparty"] == "에비슨케어")
+    assert detail["article"] == calc.ARTICLE_10
+    assert detail["rate"] == 1.0
+    assert detail["excluded_sales"] == 1_000_000_000
+    # ⑭ 건이 없으므로 합계는 0 이다.
+    assert r["ratio_exclusion_total_max"] == 0
+
+
+def test_admin_payload_keeps_ratio_ranges_and_shareholder_breakdown():
+    """관리자 응답에만 거래처별 범위와 주주별 내역이 실린다."""
+    r = calc.evaluate_admin_review("이지메디컴", 10_000_000_000, 0, 10_000_000_000,
+                                   {"대웅제약": 9_000_000_000})
+    detail = next(d for d in r["exclusion_details"] if d["counterparty"] == "대웅제약")
+    assert 0 <= detail["rate_min"] < detail["rate_max"] < 1
+    assert detail["excluded_sales_min"] < detail["excluded_sales_max"] < detail["sales"]
+    assert len(detail["by_shareholder"]) == len(calc.CODES)
 
 
 def test_no_registered_section18_keeps_golden_numbers():
