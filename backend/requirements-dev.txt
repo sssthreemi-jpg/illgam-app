@@ -1,0 +1,10 @@
+# 테스트 전용 의존성. 프로덕션 이미지에는 설치하지 않는다(backend/Dockerfile 은 requirements.txt 만 쓴다).
+-r requirements.txt
+
+pytest
+# fastapi.testclient.TestClient(=starlette.testclient) 가 요구하는 패키지.
+# starlette 1.6 부터 httpx2 를 먼저 import 하고, 없으면 httpx 로 폴백하며
+# StarletteDeprecationWarning 을 낸다. 그래서 httpx 가 아니라 httpx2 를 쓴다.
+httpx2
+# tests/e2e/run_e2e.py 용. 브라우저는 별도로 `playwright install chromium` 이 필요하다.
+playwright

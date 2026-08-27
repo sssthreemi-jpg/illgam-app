@@ -256,8 +256,8 @@ function renderReport(r, input){
   const emptyRow = '<tr><td colspan="2" class="muted">입력된 내역이 없습니다.</td></tr>'
   const pct = v => `${(Number(v) * 100).toFixed(2)}%`
   // ⑩·§18 은 주주 무관하게 100% 라 지분율 정보가 없으므로 금액을 그대로 보여준다.
-  // ⑭ 지분율 상당액은 (금액 ÷ 매출액) 으로 지분율이 역산되므로 일반 응답에는 값이 오지 않고,
-  // 관리자 응답에만 범위(rate_min/max)가 실린다.
+  // ⑭ 지분율 상당액은 (금액 ÷ 매출액) 으로 지분율이 역산되므로 일반 응답에는 거래처별 값도
+  // 합계도 오지 않는다. 범위(rate_min/max)와 합계는 관리자 응답에만 실린다.
   const exclusionList = r.exclusion_details || []
   const exclusionRows = exclusionList.map(d => {
     let rate, amount
@@ -269,14 +269,17 @@ function renderReport(r, input){
       amount = `${formatNum(d.excluded_sales_min)}원 ~ ${formatNum(d.excluded_sales_max)}원`
     } else {
       rate = '<span class="muted">주주별 상이</span>'
-      amount = '<span class="muted">합계만 표시</span>'
+      amount = '<span class="muted">비공개</span>'
     }
     return `<tr><td>${escapeHtml(d.counterparty)}</td><td class="amount">${formatNum(d.sales)}원</td><td>${escapeHtml(d.reason)}</td><td>${escapeHtml(d.article)}</td><td class="amount">${rate}</td><td class="amount">${amount}</td></tr>`
   }).join('')
   const hasRatioRows = exclusionList.some(d => d.rate === null || d.rate === undefined)
-  const ratioTotalRow = hasRatioRows && r.ratio_exclusion_total_max !== undefined
-    ? `<tr class="total-row"><th colspan="5">⑭ 지분율 상당액 합계</th><td class="amount">${formatNum(r.ratio_exclusion_total_min)}원 ~ ${formatNum(r.ratio_exclusion_total_max)}원</td></tr>`
-    : ''
+  // 합계도 관리자 전용이다. 일반 응답에 실으면 거래처를 1건만 넣어 호출하거나 요청을 쪼개
+  // 차분을 내는 것만으로 (합계 ÷ 매출액) = 지배주주 지분율이 그대로 복원된다.
+  const ratioTotalRow = !hasRatioRows ? ''
+    : (input.isAdmin && r.ratio_exclusion_total_max !== undefined
+      ? `<tr class="total-row"><th colspan="5">⑭ 지분율 상당액 합계</th><td class="amount">${formatNum(r.ratio_exclusion_total_min)}원 ~ ${formatNum(r.ratio_exclusion_total_max)}원</td></tr>`
+      : `<tr class="total-row"><th colspan="5">⑭ 지분율 상당액 합계</th><td class="amount muted">비공개 (지분율 역산 방지)</td></tr>`)
   const emptyExclusionRow = '<tr><td colspan="6" class="muted">입력된 특수관계자 매출이 없습니다.</td></tr>'
   const taxTotal = Object.values(input.tax_adjustments || {}).reduce((sum, v) => sum + (Number(v) || 0), 0)
   const taxTotalRow = taxRows ? `<tr class="total-row"><th>합계 (영업이익 가감액)</th><td class="amount">${formatNum(taxTotal)}원</td></tr>` : ''

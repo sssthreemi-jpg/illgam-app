@@ -1,9 +1,11 @@
+import pytest
 from fastapi.testclient import TestClient
-from backend.calc import company_list
-import json
 
 from backend.main import app
 
+# 데모 계정 "이지메디컴" 이 실제 데이터에 존재해야 한다.
+# 합성 fixture 환경의 API 노출면 검증은 test_calc_synthetic.py 가 담당한다.
+pytestmark = pytest.mark.realdata
 
 client = TestClient(app)
 
@@ -22,8 +24,8 @@ def test_api_response_privacy():
     body = {"company": "이지메디컴", "operating_income": 1000000, "corporate_tax": 0, "total_sales": 1000000, "related_sales": {"대웅제약": 100000}}
     r = client.post("/api/evaluate", json=body, headers=headers)
     assert r.status_code == 200
-    allowed = {"company","size","taxable","total_sales","related_sales_total","related_sales_ratio","normal_ratio","deemed_gift_total","gift_tax_total","reason","exclusion_details","ratio_exclusion_total_min","ratio_exclusion_total_max"}
-    assert set(r.json().keys()) <= allowed
+    allowed = {"company","size","taxable","total_sales","related_sales_total","related_sales_ratio","normal_ratio","deemed_gift_total","gift_tax_total","reason","exclusion_details"}
+    assert set(r.json().keys()) <= allowed, set(r.json().keys()) - allowed
 
     # ⑭ 지분율 상당액 건에서 지분율이 역산될 만한 값이 새어나가면 안 된다.
     for detail in r.json().get("exclusion_details", []):

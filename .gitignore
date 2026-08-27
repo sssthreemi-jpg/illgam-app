@@ -1,8 +1,12 @@
+# 기밀 지분 데이터. 배포 파이프라인/CI 시크릿으로만 주입한다.
+# (backend/tests/fixtures/data/ 의 합성 데이터는 이 패턴에 걸리지 않으며 추적 대상이다.)
 backend/data/*.json
-.env
+
 .env
 __pycache__/
 *.pyc
 node_modules/
-# 민감 데이터: 배포 파이프라인에서 주입하려면 아래 주석 해제
-# backend/data/*.json
+
+# 로컬 가상환경
+.venv/
+venv/

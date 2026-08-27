@@ -3,34 +3,80 @@
 """
 import json, math, os
 
-DATA = os.path.join(os.path.dirname(__file__), "data")
+DEFAULT_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
-def _load(name):
-    with open(os.path.join(DATA, name), encoding="utf-8") as f:
-        return json.load(f)
+# 적재 대상 파일. 전부 .gitignore 대상(기밀)이라 저장소에는 없으며,
+# 배포 파이프라인이 주입하거나 테스트가 ILLGAM_DATA_DIR 로 fixture 를 가리킨다.
+DATA_FILES = (
+    "company_sizes.json",
+    "shareholder_holdings.json",
+    "intercompany_holdings.json",
+    "params.json",
+    "section18_indirect_investors.json",
+)
 
-SIZES = _load("company_sizes.json")            # {법인: 규모}
-HOLD  = _load("shareholder_holdings.json")     # {법인: {A..C12, sum}}
-INTER = _load("intercompany_holdings.json")    # {소유법인: {피소유법인: 지분}}
-PARAMS = _load("params.json")
-
-# 상증령 §34의3 ⑱ 간접출자법인. {수혜법인: [간접출자법인, ...]}
-# 밑줄로 시작하는 키는 파일 내 주석이므로 제외한다.
-SECTION18 = {k: set(v) for k, v in _load("section18_indirect_investors.json").items()
-             if not k.startswith("_")}
-
-CODES = [s["code"] for s in PARAMS["shareholders"]]   # A,B,C,D,C1,C11,C12
-NORMAL = PARAMS["정상거래비율"]
-DED_R  = PARAMS["공제거래비율"]
-DED_H  = PARAMS["공제보유비율"]
-BRACKETS = PARAMS["누진세율"]                  # [[과표하한, 세율, 누진공제], ...]
-EXEMPT = PARAMS["면세점"]
 GENERAL_RELATED_SALES_THRESHOLD = 100_000_000_000
 GENERAL_HIGH_RELATED_RATIO = 0.2
 
 # 개별 법인으로 잡히지 않는 나머지 거래처를 담는 catch-all 이름.
 # 프론트엔드가 별도로 만들어 쓰지 않도록 company_list() 에 포함해 내려보낸다.
 OTHER_COMPANY = "기타법인"
+
+
+def resolve_data_dir(path=None):
+    """사용할 데이터 디렉터리. ILLGAM_DATA_DIR 환경변수로 덮어쓸 수 있다."""
+    return path or os.environ.get("ILLGAM_DATA_DIR") or DEFAULT_DATA_DIR
+
+
+def data_available(path=None):
+    base = resolve_data_dir(path)
+    return all(os.path.isfile(os.path.join(base, name)) for name in DATA_FILES)
+
+
+def load_data(path=None):
+    """데이터 세트를 (재)적재한다.
+
+    import 시점에 곧바로 파일을 읽지 않고 이 함수로 분리한 이유는 두 가지다.
+    - 데이터가 없는 환경(CI 등)에서 import 자체가 FileNotFoundError 로 죽지 않게 한다.
+    - 테스트가 ILLGAM_DATA_DIR 로 합성 fixture 를 끼워 넣고 다시 적재할 수 있게 한다.
+
+    반환값: 적재 성공 여부(bool).
+    """
+    global DATA, DATA_LOADED, SIZES, HOLD, INTER, PARAMS, SECTION18
+    global CODES, NORMAL, DED_R, DED_H, BRACKETS, EXEMPT
+
+    base = resolve_data_dir(path)
+    if not data_available(base):
+        DATA, DATA_LOADED = base, False
+        SIZES, HOLD, INTER, PARAMS, SECTION18 = {}, {}, {}, {}, {}
+        CODES, NORMAL, DED_R, DED_H, BRACKETS, EXEMPT = [], {}, {}, {}, [], 0
+        return False
+
+    def _load(name):
+        with open(os.path.join(base, name), encoding="utf-8") as f:
+            return json.load(f)
+
+    DATA = base
+    SIZES = _load("company_sizes.json")            # {법인: 규모}
+    HOLD  = _load("shareholder_holdings.json")     # {법인: {A..C12, sum}}
+    INTER = _load("intercompany_holdings.json")    # {소유법인: {피소유법인: 지분}}
+    PARAMS = _load("params.json")
+    # 상증령 §34의3 ⑱ 간접출자법인. {수혜법인: [간접출자법인, ...]}
+    # 밑줄로 시작하는 키는 파일 내 주석이므로 제외한다.
+    SECTION18 = {k: set(v) for k, v in _load("section18_indirect_investors.json").items()
+                 if not k.startswith("_")}
+
+    CODES = [s["code"] for s in PARAMS["shareholders"]]   # A,B,C,D,C1,C11,C12
+    NORMAL = PARAMS["정상거래비율"]
+    DED_R  = PARAMS["공제거래비율"]
+    DED_H  = PARAMS["공제보유비율"]
+    BRACKETS = PARAMS["누진세율"]                  # [[과표하한, 세율, 누진공제], ...]
+    EXEMPT = PARAMS["면세점"]
+    DATA_LOADED = True
+    return True
+
+
+load_data()
 
 
 def company_list():
@@ -101,8 +147,11 @@ def exclusion_for(company, counterparty, sales, shareholder):
 def _ratio_exclusion_totals(details):
     """⑭ 지분율 상당액이 적용된 건들만 모은 지배주주별 과세제외 합계.
 
-    거래처별 금액을 일반 사용자에게 주면 (금액 ÷ 매출액) 으로 지분율이 그대로 역산된다.
-    여러 거래처가 섞인 합계는 개별 지분율로 분해되지 않으므로 이 값만 공개한다.
+    **관리자 응답에만 싣는다.** 한때 "여러 거래처가 섞인 합계는 개별 지분율로 분해되지 않는다"는
+    이유로 일반 응답에도 범위(min/max)를 실었지만, 합계의 구성을 정하는 쪽이 클라이언트다:
+      - 거래처를 1건만 넣어 호출하면 (합계 ÷ 그 거래처 매출) 이 곧 지분율이다.
+      - 여러 건을 넣어도 {A,B} 호출과 {A} 호출의 차분으로 B 의 몫이 정확히 복원된다.
+    거래처 건수 임계값이나 버킷화로는 이 차분 공격을 막지 못하므로 아예 내보내지 않는다.
     """
     totals = {code: 0.0 for code in CODES}
     for d in details:
@@ -190,7 +239,6 @@ def evaluate(company, operating_income, corporate_tax, total_sales,
     size = SIZES[company]
 
     teuk, excluded_by_code, details = _exclusions(company, related_sales)
-    ratio_totals = _ratio_exclusion_totals(details)
 
     after_tax_base = _after_tax_base(operating_income, corporate_tax, tax_adjustments)
     normal_ratio = _normal_ratio(size, teuk)
@@ -217,10 +265,8 @@ def evaluate(company, operating_income, corporate_tax, total_sales,
         "gift_tax_total": tax_total,
         "reason": _reason(size, teuk, total_sales, normal_ratio, tax_total),
         # 거래처별 과세제외 사유·조문. 적용률·금액은 ⑩·§18(100%) 건만 채워지고
-        # ⑭ 지분율 상당액 건은 None 이며, 아래 합계 범위로 대신 제공한다.
+        # ⑭ 지분율 상당액 건은 None 이다. 합계도 내보내지 않는다(_ratio_exclusion_totals 주석 참조).
         "exclusion_details": [_public_detail(d) for d in details],
-        "ratio_exclusion_total_min": round(min(ratio_totals.values())),
-        "ratio_exclusion_total_max": round(max(ratio_totals.values())),
     }
 
 
@@ -245,6 +291,7 @@ def evaluate_admin_review(company, operating_income, corporate_tax, total_sales,
 
     # ⑩ 기본 과세제외분은 지배주주와 무관하게 모두에게 동일하게 빠지는 '공통' 제외분이다.
     common_exclusion = sum(d["sales"] for d in details if d["article"] == ARTICLE_10)
+    ratio_totals = _ratio_exclusion_totals(details)
 
     exclusions = []
     adjusted_ratios = []
@@ -272,6 +319,8 @@ def evaluate_admin_review(company, operating_income, corporate_tax, total_sales,
     result.update({
         # 주주별 적용률(=지분율)까지 담긴 전체 내역. 관리자 응답에만 싣는다.
         "exclusion_details": details,
+        "ratio_exclusion_total_min": round(min(ratio_totals.values())) if ratio_totals else 0,
+        "ratio_exclusion_total_max": round(max(ratio_totals.values())) if ratio_totals else 0,
         "excluded_sales_common": round(common_exclusion),
         "excluded_sales_min": round(min(exclusions) if exclusions else 0),
         "excluded_sales_max": round(max(exclusions) if exclusions else 0),

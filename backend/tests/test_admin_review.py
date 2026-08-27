@@ -3,11 +3,16 @@
 evaluate_admin_review 는 evaluate 와 별도의 경로로 제외분을 다시 계산하므로,
 두 경로의 총액이 어긋나지 않는지 회귀로 고정한다.
 """
+import pytest
 from fastapi.testclient import TestClient
 
 from backend.main import app
 from backend.auth import ADMIN_USERNAME, ADMIN_PASSWORD
 from backend.calc import evaluate, evaluate_admin_review
+
+# 실제 법인명("이지메디컴")과 소유구조에 의존한다.
+# 권한 거부(401/403)와 관리자 전용 필드 노출은 test_calc_synthetic.py 에서도 검증한다.
+pytestmark = pytest.mark.realdata
 
 client = TestClient(app)
 

@@ -1,5 +1,12 @@
+import pytest
+
 import backend.calc as calc
-from backend.calc import evaluate, company_list, OTHER_COMPANY, SIZES
+from backend.calc import evaluate, company_list, OTHER_COMPANY
+
+# 엑셀 검증본 골든 넘버와 실제 소유구조에 의존한다. 합성 fixture 로는 재현할 수 없으므로
+# 실제 데이터가 없는 환경(CI)에서는 conftest 가 통째로 건너뛴다.
+# 데이터에 의존하지 않는 로직 검증은 test_calc_synthetic.py 가 담당한다.
+pytestmark = pytest.mark.realdata
 
 def test_ezmedicom():
     r = evaluate("이지메디컴", 10_000_000_000, 0, 10_000_000_000,
@@ -61,7 +68,7 @@ def test_company_list_ends_with_other_company_catch_all():
     companies = company_list()
     assert companies[-1] == OTHER_COMPANY
     assert companies.count(OTHER_COMPANY) == 1
-    assert OTHER_COMPANY not in SIZES, "catch-all 은 판정 대상 법인이 될 수 없다"
+    assert OTHER_COMPANY not in calc.SIZES, "catch-all 은 판정 대상 법인이 될 수 없다"
 
 
 def test_other_company_sales_count_as_related_without_exclusion():
@@ -130,9 +137,10 @@ def test_ratio_exclusion_amounts_are_hidden_from_public_payload():
     for leaked in ("rate_min", "rate_max", "excluded_sales_min", "excluded_sales_max",
                    "by_shareholder"):
         assert leaked not in detail, leaked
-    # 합계는 여러 거래처가 섞여 개별 지분율로 분해되지 않으므로 공개한다.
-    assert r["ratio_exclusion_total_max"] > 0
-    assert r["ratio_exclusion_total_min"] <= r["ratio_exclusion_total_max"]
+    # 합계도 주지 않는다. 거래처 1건만 넣어 호출하면 (합계 ÷ 매출) 이 곧 지분율이고,
+    # 여러 건을 넣어도 요청을 쪼갠 차분으로 개별 몫이 복원되기 때문이다.
+    for leaked in ("ratio_exclusion_total_min", "ratio_exclusion_total_max"):
+        assert leaked not in r, leaked
 
 
 def test_section10_amount_stays_visible_in_public_payload():
@@ -143,8 +151,6 @@ def test_section10_amount_stays_visible_in_public_payload():
     assert detail["article"] == calc.ARTICLE_10
     assert detail["rate"] == 1.0
     assert detail["excluded_sales"] == 1_000_000_000
-    # ⑭ 건이 없으므로 합계는 0 이다.
-    assert r["ratio_exclusion_total_max"] == 0
 
 
 def test_admin_payload_keeps_ratio_ranges_and_shareholder_breakdown():
@@ -155,6 +161,9 @@ def test_admin_payload_keeps_ratio_ranges_and_shareholder_breakdown():
     assert 0 <= detail["rate_min"] < detail["rate_max"] < 1
     assert detail["excluded_sales_min"] < detail["excluded_sales_max"] < detail["sales"]
     assert len(detail["by_shareholder"]) == len(calc.CODES)
+    # ⑭ 합계 범위는 관리자 응답에만 남긴다.
+    assert r["ratio_exclusion_total_max"] > 0
+    assert r["ratio_exclusion_total_min"] <= r["ratio_exclusion_total_max"]
 
 
 def test_no_registered_section18_keeps_golden_numbers():
