@@ -43,6 +43,8 @@
     .logic-box ol{margin:0;padding-left:22px;color:#334155;line-height:1.8}
     .logic-formula{margin-top:12px;padding:12px;background:#fff;border:1px dashed #cbd8e8;border-radius:6px;color:#475569;font-size:13px;line-height:1.7}
     .detail-table{min-width:900px}
+    .exclusion-table{min-width:760px}
+    .exclusion-table thead th{white-space:nowrap}
     .raw-page{margin:18px 0;padding:28px;min-height:420px}
     .raw-table{width:100%;border-collapse:collapse;border:1px solid var(--line);font-size:13px}
     .raw-table th,.raw-table td{padding:10px;border:1px solid var(--line);text-align:left}
@@ -101,7 +103,7 @@
         <input id="password" type="password" value="" placeholder="비밀번호">
       </div>
       <div id="login-error" class="form-error" role="alert" aria-live="polite"></div>
-      <div style="margin-bottom:6px"><button id="login" class="full">로그인</button></div>
+      <div style="margin-bottom:6px"><button type="button" id="login" class="full">로그인</button></div>
       <div style="display:flex;justify-content:center;gap:18px;font-size:13px;color:var(--muted);margin-top:8px">
         <a href="#" style="color:var(--muted);text-decoration:none">회원가입</a>
         <span style="color:#f0f0f0">|</span>
@@ -202,7 +204,7 @@
             </section>
 
             <div style="margin-top:20px;display:flex;gap:10px;align-items:center">
-              <button id="evaluate">확인</button>
+              <button type="button" id="evaluate">확인</button>
               <div class="hint">입력 내용을 확인한 뒤 결과 페이지로 이동합니다.</div>
             </div>
             <div id="form-error" class="form-error" role="alert" aria-live="polite"></div>

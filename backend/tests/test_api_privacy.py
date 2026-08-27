@@ -22,8 +22,12 @@ def test_api_response_privacy():
     body = {"company": "이지메디컴", "operating_income": 1000000, "corporate_tax": 0, "total_sales": 1000000, "related_sales": {"대웅제약": 100000}}
     r = client.post("/api/evaluate", json=body, headers=headers)
     assert r.status_code == 200
-    allowed = {"company","size","taxable","total_sales","related_sales_total","related_sales_ratio","normal_ratio","deemed_gift_total","gift_tax_total","reason"}
+    allowed = {"company","size","taxable","total_sales","related_sales_total","related_sales_ratio","normal_ratio","deemed_gift_total","gift_tax_total","reason","exclusion_details"}
     assert set(r.json().keys()) <= allowed
+
+    # 과세제외 내역에 주주별 적용률(=지분율)이 새어나가면 안 된다.
+    for detail in r.json().get("exclusion_details", []):
+        assert "by_shareholder" not in detail, detail
 
     # companies endpoint should return only names list
     r2 = client.get("/api/companies", headers=headers)

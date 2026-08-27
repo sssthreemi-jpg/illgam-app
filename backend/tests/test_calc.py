@@ -1,3 +1,4 @@
+import backend.calc as calc
 from backend.calc import evaluate, company_list, OTHER_COMPANY, SIZES
 
 def test_ezmedicom():
@@ -52,7 +53,7 @@ def test_tax_adjustments_omitted_keeps_previous_behaviour():
     assert (evaluate("대웅펫", 5_000_000_000, 0, 8_000_000_000,
                      {"대웅제약": 5_000_000_000})["gift_tax_total"]
             == evaluate("대웅펫", 5_000_000_000, 0, 8_000_000_000,
-                        {"대웅제약": 5_000_000_000}, None, {})["gift_tax_total"])
+                        {"대웅제약": 5_000_000_000}, {})["gift_tax_total"])
 
 
 def test_company_list_ends_with_other_company_catch_all():
@@ -69,6 +70,78 @@ def test_other_company_sales_count_as_related_without_exclusion():
                  {OTHER_COMPANY: 4_000_000_000})
     assert r["related_sales_total"] == 4_000_000_000
     assert r["related_sales_ratio"] == 0.4
+
+
+# --- 과세제외 판정 (상증령 §34의3) -------------------------------------------
+
+def test_section10_takes_precedence_over_section14(monkeypatch):
+    """⑩ 기본 과세제외가 성립하면 ⑭ 는 보지 않는다. §18 에 등재돼 있어도 마찬가지다."""
+    monkeypatch.setitem(calc.SECTION18, "이지메디컴", {"에비슨케어"})
+    verdict = calc.exclusion_for("이지메디컴", "에비슨케어", 1_000_000_000, "A")
+    assert verdict["article"] == calc.ARTICLE_10
+    assert verdict["rate"] == 1.0
+    assert verdict["excluded_sales"] == 1_000_000_000
+
+
+def test_plain_indirect_holding_is_not_fully_excluded():
+    """단순 간접지분 관계는 전액 제외 대상이 아니다 — ⑭ 지분율 상당액만 적용된다."""
+    verdict = calc.exclusion_for("이지메디컴", "대웅제약", 9_000_000_000, "A")
+    assert verdict["article"] == calc.ARTICLE_14_RATIO
+    assert 0 < verdict["rate"] < 1
+    assert verdict["excluded_sales"] < 9_000_000_000
+
+
+def test_section18_indirect_investor_excludes_full_sales(monkeypatch):
+    """§14① §18 간접출자법인과의 거래는 매출액 100% 를 제외한다."""
+    monkeypatch.setitem(calc.SECTION18, "이지메디컴", {"대웅제약"})
+    r = evaluate("이지메디컴", 10_000_000_000, 0, 10_000_000_000,
+                 {"대웅제약": 9_000_000_000})
+    detail = next(d for d in r["exclusion_details"] if d["counterparty"] == "대웅제약")
+    assert detail["article"] == calc.ARTICLE_14_1
+    assert detail["rate"] == 1.0
+    assert detail["excluded_sales"] == 9_000_000_000
+    assert r["gift_tax_total"] == 0, "전액 제외되면 조정 후 특관비율이 0 이 된다"
+
+
+def test_overlapping_reasons_apply_only_the_largest(monkeypatch):
+    """사유가 겹치면 합산하지 않고 과세제외금액이 가장 큰 하나만 적용한다."""
+    assert calc.HOLD["대웅제약"]["A"] > 0, "겹치는 ⑭ 지분율 사유가 실제로 존재해야 한다"
+    monkeypatch.setitem(calc.SECTION18, "이지메디컴", {"대웅제약"})
+    verdict = calc.exclusion_for("이지메디컴", "대웅제약", 9_000_000_000, "A")
+    assert verdict["rate"] == 1.0
+    assert verdict["excluded_sales"] == 9_000_000_000, "지분율 상당액이 더해지면 안 된다"
+
+
+def test_exclusion_details_expose_reason_article_rate_and_amount():
+    r = evaluate("이지메디컴", 10_000_000_000, 0, 10_000_000_000,
+                 {"대웅제약": 9_000_000_000})
+    detail = next(d for d in r["exclusion_details"] if d["counterparty"] == "대웅제약")
+    assert set(detail) == {"counterparty", "sales", "reason", "article", "rate", "excluded_sales",
+                           "rate_min", "rate_max", "excluded_sales_min", "excluded_sales_max"}
+    # 주주마다 적용률이 다른 건은 단일 적용률을 낼 수 없으므로 None 이고, 범위로 대신한다.
+    assert detail["rate"] is None
+    assert detail["excluded_sales"] is None
+    assert detail["reason"] == calc.REASON_14_RATIO
+    assert 0 <= detail["rate_min"] < detail["rate_max"] < 1
+    assert detail["excluded_sales_min"] < detail["excluded_sales_max"] < detail["sales"]
+
+
+def test_uniform_exclusion_reports_single_rate_and_range_agree(monkeypatch):
+    """⑩·§18 처럼 주주 무관하게 같은 율인 건은 단일값과 범위가 일치해야 한다."""
+    monkeypatch.setitem(calc.SECTION18, "이지메디컴", {"대웅제약"})
+    r = evaluate("이지메디컴", 10_000_000_000, 0, 10_000_000_000,
+                 {"대웅제약": 9_000_000_000})
+    detail = next(d for d in r["exclusion_details"] if d["counterparty"] == "대웅제약")
+    assert detail["rate"] == detail["rate_min"] == detail["rate_max"] == 1.0
+    assert detail["excluded_sales"] == detail["excluded_sales_min"] == detail["excluded_sales_max"]
+
+
+def test_no_registered_section18_keeps_golden_numbers():
+    """§18 미등재 상태(기본값)에서는 엑셀 검증본 결과가 그대로 유지된다."""
+    assert calc.SECTION18 == {}, "기본 데이터 파일에는 등재된 관계가 없어야 한다"
+    r = evaluate("이지메디컴", 10_000_000_000, 0, 10_000_000_000,
+                 {"대웅제약": 9_000_000_000})
+    assert r["gift_tax_total"] == 1_559_826_490
 
 
 if __name__ == "__main__":

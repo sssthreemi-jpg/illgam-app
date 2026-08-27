@@ -46,9 +46,11 @@ def api_evaluate(req: EvaluateRequest, current: User = Depends(get_current_user)
         raise HTTPException(status_code=403, detail="권한 없음")
     if req.company not in SIZES:
         raise HTTPException(status_code=400, detail="계산 가능한 법인을 선택하세요")
+    # 간접출자 여부는 클라이언트가 정하지 않는다. 서버가 지분 데이터에서 도출한다
+    # (플래그가 서면 해당 거래처 매출이 전액 제외되어 세액을 임의로 낮출 수 있다).
     res = evaluate(req.company, req.operating_income, req.corporate_tax,
-                   req.total_sales, req.related_sales, req.indirect_invest,
-                   req.tax_adjustments)
+                   req.total_sales, req.related_sales,
+                   tax_adjustments=req.tax_adjustments)
     # calc.evaluate already returns only allowed aggregate fields
     return res
 
@@ -60,8 +62,8 @@ def admin_evaluate_review(req: EvaluateRequest, current: User = Depends(get_curr
     if req.company not in SIZES:
         raise HTTPException(status_code=400, detail="계산 가능한 법인을 선택하세요")
     return evaluate_admin_review(req.company, req.operating_income, req.corporate_tax,
-                                 req.total_sales, req.related_sales, req.indirect_invest,
-                                 req.tax_adjustments)
+                                 req.total_sales, req.related_sales,
+                                 tax_adjustments=req.tax_adjustments)
 
 
 @app.get("/api/admin/summary")
@@ -71,7 +73,7 @@ def admin_summary(current: User = Depends(get_current_user)):
     out = []
     for c in SIZES.keys():
         # For admin summary we run evaluate with zeroed inputs (admin should supply real inputs in UI)
-        r = evaluate(c, 0, 0, 0, {}, {})
+        r = evaluate(c, 0, 0, 0, {})
         out.append({"company": c, "taxable": r["taxable"], "gift_tax_total": r["gift_tax_total"]})
     return {"summary": out}
 

@@ -254,6 +254,18 @@ function renderReport(r, input){
   const taxRows = Object.entries(input.tax_adjustments || {}).map(([name, amount]) => `
     <tr><td>${escapeHtml(name)}</td><td class="amount">${formatNum(amount)}원</td></tr>`).join('')
   const emptyRow = '<tr><td colspan="2" class="muted">입력된 내역이 없습니다.</td></tr>'
+  const pct = v => `${(Number(v) * 100).toFixed(2)}%`
+  // ⑩/§18 은 주주 무관하게 같은 율이라 rate 에 단일값이 오고,
+  // ⑭ 지분율 상당액은 주주마다 달라 rate 가 null 이므로 min~max 범위로 표시한다.
+  const exclusionRows = (r.exclusion_details || []).map(d => {
+    const single = d.rate !== null && d.rate !== undefined
+    const rate = single ? pct(d.rate) : `${pct(d.rate_min)} ~ ${pct(d.rate_max)}`
+    const amount = single
+      ? `${formatNum(d.excluded_sales)}원`
+      : `${formatNum(d.excluded_sales_min)}원 ~ ${formatNum(d.excluded_sales_max)}원`
+    return `<tr><td>${escapeHtml(d.counterparty)}</td><td class="amount">${formatNum(d.sales)}원</td><td>${escapeHtml(d.reason)}</td><td>${escapeHtml(d.article)}</td><td class="amount">${rate}</td><td class="amount">${amount}</td></tr>`
+  }).join('')
+  const emptyExclusionRow = '<tr><td colspan="6" class="muted">입력된 특수관계자 매출이 없습니다.</td></tr>'
   const taxTotal = Object.values(input.tax_adjustments || {}).reduce((sum, v) => sum + (Number(v) || 0), 0)
   const taxTotalRow = taxRows ? `<tr class="total-row"><th>합계 (영업이익 가감액)</th><td class="amount">${formatNum(taxTotal)}원</td></tr>` : ''
   const adminLogic = input.isAdmin ? `
@@ -311,7 +323,14 @@ function renderReport(r, input){
       <table class="report-table"><thead><tr><th>거래처명</th><th>매출액</th></tr></thead><tbody>${relatedRows || emptyRow}</tbody></table>
     </section>
 
-    <section class="report-section"><h3>4. 세무조정내역</h3>
+    <section class="report-section"><h3>4. 과세제외 내역</h3>
+      <div style="overflow:auto">
+        <table class="report-table exclusion-table"><thead><tr><th>거래처명</th><th>매출액</th><th>과세제외 사유</th><th>적용 조문</th><th>적용률</th><th>과세제외매출액</th></tr></thead><tbody>${exclusionRows || emptyExclusionRow}</tbody></table>
+      </div>
+      <div class="hint">⑩ 기본 과세제외를 먼저 판정하고, 해당하지 않는 거래처만 ⑭ 추가 과세제외를 적용합니다. 사유가 겹치면 합산하지 않고 과세제외금액이 가장 큰 하나만 적용합니다. ⑭ 지분율 상당액은 지배주주마다 적용률이 달라 최소~최대 범위로 표시합니다.${input.isAdmin ? ' 주주별 상세는 아래 관리자 검토 항목을 참고하세요.' : ''}</div>
+    </section>
+
+    <section class="report-section"><h3>5. 세무조정내역</h3>
       <table class="report-table"><thead><tr><th>조정 항목</th><th>금액</th></tr></thead><tbody>${taxRows || emptyRow}${taxTotalRow}</tbody></table>
       <div class="hint">세후영업이익 = 영업이익 ± 세무조정금액 − 법인세 상당액</div>
     </section>
