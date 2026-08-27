@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
 
-from backend.calc import evaluate, company_list, SIZES
+from backend.calc import evaluate, evaluate_admin_review, company_list, SIZES
 from backend.models import LoginRequest, LoginResponse, EvaluateRequest
 from backend.auth import get_current_user, User, authenticate_user, create_access_token
 
@@ -44,10 +44,24 @@ def my_company(current: User = Depends(get_current_user)):
 def api_evaluate(req: EvaluateRequest, current: User = Depends(get_current_user)):
     if req.company != current.company and not current.is_admin:
         raise HTTPException(status_code=403, detail="권한 없음")
+    if req.company not in SIZES:
+        raise HTTPException(status_code=400, detail="계산 가능한 법인을 선택하세요")
     res = evaluate(req.company, req.operating_income, req.corporate_tax,
-                   req.total_sales, req.related_sales, req.indirect_invest)
+                   req.total_sales, req.related_sales, req.indirect_invest,
+                   req.tax_adjustments)
     # calc.evaluate already returns only allowed aggregate fields
     return res
+
+
+@app.post("/api/admin/evaluate-review")
+def admin_evaluate_review(req: EvaluateRequest, current: User = Depends(get_current_user)):
+    if not current.is_admin:
+        raise HTTPException(status_code=403, detail="관리자 권한 필요")
+    if req.company not in SIZES:
+        raise HTTPException(status_code=400, detail="계산 가능한 법인을 선택하세요")
+    return evaluate_admin_review(req.company, req.operating_income, req.corporate_tax,
+                                 req.total_sales, req.related_sales, req.indirect_invest,
+                                 req.tax_adjustments)
 
 
 @app.get("/api/admin/summary")

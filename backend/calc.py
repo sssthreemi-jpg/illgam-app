@@ -20,10 +20,19 @@ DED_R  = PARAMS["공제거래비율"]
 DED_H  = PARAMS["공제보유비율"]
 BRACKETS = PARAMS["누진세율"]                  # [[과표하한, 세율, 누진공제], ...]
 EXEMPT = PARAMS["면세점"]
+GENERAL_RELATED_SALES_THRESHOLD = 100_000_000_000
+GENERAL_HIGH_RELATED_RATIO = 0.2
 
 def company_list():
     """거래처 선택용 법인명 목록(+기타). 규모/지분 등 부가정보는 반환하지 않음."""
-    return sorted(SIZES.keys()) + ["기타"]
+    companies = sorted(SIZES.keys())
+    if "대웅" in companies:
+        companies.remove("대웅")
+        companies.insert(0, "대웅")
+    if "HR그룹" in companies:
+        companies.remove("HR그룹")
+        companies.append("HR그룹")
+    return companies + ["기타"]
 
 def _gift_tax(base):
     if base < EXEMPT:
@@ -35,11 +44,20 @@ def _gift_tax(base):
     tax = base * rate - deduct
     return int(math.floor(tax / 10) * 10)   # 10원 미만 절사
 
+def _after_tax_base(operating_income, corporate_tax, tax_adjustments):
+    """세후영업이익 = 영업이익 ± 세무조정금액 - 법인세 상당액.
+
+    세무조정 항목은 가산이면 양수, 차감이면 음수로 입력받아 그대로 합산한다.
+    """
+    return operating_income + sum((tax_adjustments or {}).values()) - corporate_tax
+
+
 def evaluate(company, operating_income, corporate_tax, total_sales,
-             related_sales=None, indirect_invest=None):
+             related_sales=None, indirect_invest=None, tax_adjustments=None):
     """집계 결과만 반환 (지분율·지배주주별 내역 미반환)."""
     related_sales = related_sales or {}
     indirect_invest = indirect_invest or {}
+    tax_adjustments = tax_adjustments or {}
     if company not in SIZES:
         raise ValueError("알 수 없는 법인")
     size = SIZES[company]
@@ -61,7 +79,8 @@ def evaluate(company, operating_income, corporate_tax, total_sales,
         for k in CODES:
             f14[k] += max(F if indirect else 0, F * gh.get(k, 0))
 
-    after_tax_base = operating_income - corporate_tax
+    after_tax_base = _after_tax_base(operating_income, corporate_tax, tax_adjustments)
+    normal_ratio = _normal_ratio(size, teuk)
     myhold = HOLD.get(company, {})
     deemed_total = 0
     tax_total = 0
@@ -80,11 +99,68 @@ def evaluate(company, operating_income, corporate_tax, total_sales,
         "total_sales": total_sales,
         "related_sales_total": teuk,
         "related_sales_ratio": (teuk / total_sales) if total_sales else 0,
-        "normal_ratio": NORMAL[size],
+        "normal_ratio": normal_ratio,
         "deemed_gift_total": round(deemed_total),
         "gift_tax_total": tax_total,
-        "reason": _reason(size, teuk, total_sales, NORMAL[size], tax_total),
+        "reason": _reason(size, teuk, total_sales, normal_ratio, tax_total),
     }
+
+
+def _normal_ratio(size, related_sales_total):
+    if size == "일반" and related_sales_total > GENERAL_RELATED_SALES_THRESHOLD:
+        return GENERAL_HIGH_RELATED_RATIO
+    return NORMAL[size]
+
+
+def evaluate_admin_review(company, operating_income, corporate_tax, total_sales,
+                          related_sales=None, indirect_invest=None, tax_adjustments=None):
+    """Return aggregate exclusion metrics for the admin review screen only."""
+    result = evaluate(company, operating_income, corporate_tax, total_sales,
+                      related_sales, indirect_invest, tax_adjustments)
+    related_sales = related_sales or {}
+    indirect_invest = indirect_invest or {}
+    after_tax_base = _after_tax_base(operating_income, corporate_tax, tax_adjustments)
+    owned = INTER.get(company, {})
+    exclusions = []
+    adjusted_ratios = []
+    shareholder_details = []
+    for shareholder in CODES:
+        excluded = 0.0
+        for name, sales in related_sales.items():
+            sales = sales or 0
+            section10 = sales if owned.get(name, 0) > 0 else 0
+            F = sales - section10
+            holdings = HOLD.get(name, {})
+            excluded += section10 + max(F if indirect_invest.get(name, False) else 0,
+                                         F * holdings.get(shareholder, 0))
+        exclusions.append(excluded)
+        denominator = total_sales - excluded
+        adjusted_ratio = ((result["related_sales_total"] - excluded) / denominator
+                          if denominator else 0)
+        adjusted_ratios.append(adjusted_ratio)
+        after = after_tax_base * (1 - excluded / total_sales) if total_sales else 0
+        deemed = max(0, after) * max(0, adjusted_ratio - DED_R[result["size"]]) * max(0, HOLD.get(company, {}).get(shareholder, 0) - DED_H[result["size"]])
+        shareholder_details.append({
+            "code": shareholder,
+            "name": next((item["name"] for item in PARAMS["shareholders"] if item["code"] == shareholder), shareholder),
+            "holding_ratio": HOLD.get(company, {}).get(shareholder, 0),
+            "excluded_sales": round(excluded),
+            "adjusted_related_ratio": adjusted_ratio,
+            "after_tax_operating_income": after,
+            "deemed_gift_income": deemed,
+            "gift_tax": _gift_tax(deemed),
+            "taxable": _gift_tax(deemed) > 0,
+        })
+
+    result.update({
+        "excluded_sales_common": round(min(exclusions) if exclusions else 0),
+        "excluded_sales_min": round(min(exclusions) if exclusions else 0),
+        "excluded_sales_max": round(max(exclusions) if exclusions else 0),
+        "adjusted_related_ratio_min": min(adjusted_ratios) if adjusted_ratios else 0,
+        "adjusted_related_ratio_max": max(adjusted_ratios) if adjusted_ratios else 0,
+        "shareholder_details": shareholder_details,
+    })
+    return result
 
 def _reason(size, teuk, total, normal, tax):
     if total == 0:
