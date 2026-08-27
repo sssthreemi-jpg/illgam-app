@@ -1,6 +1,6 @@
 import os
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import Header, HTTPException
 from jose import jwt, JWTError
 from passlib.context import CryptContext
@@ -49,7 +49,7 @@ _USER_STORE = _hash_store(_USER_STORE_RAW)
 
 def create_access_token(username: str, is_admin: bool, expires_minutes: int = 60):
     to_encode = {"sub": username, "is_admin": is_admin}
-    expire = datetime.utcnow() + timedelta(minutes=expires_minutes)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=expires_minutes)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, JWT_SECRET, algorithm=JWT_ALGO)
 

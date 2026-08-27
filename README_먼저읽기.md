@@ -15,18 +15,18 @@ illgam-app/
 
 ## 순서
 1. VS Code에서 이 `illgam-app` 폴더를 연다 (File → Open Folder).
-2. (선택) 계산 엔진이 맞는지 먼저 확인:
+2. (선택) 계산 엔진이 맞는지 먼저 확인 — **저장소 루트에서** 실행한다
+   (`backend` 은 패키지라 `cd backend` 후에는 import 가 풀리지 않는다):
    ```
-   cd backend
-   pip install -r requirements.txt
-   python tests/test_calc.py        # PASS 나오면 정상 (엑셀과 동일)
+   pip install -r backend/requirements-dev.txt
+   python -m pytest backend -q      # 전부 통과하면 정상 (엑셀과 동일)
    ```
 3. `붙여넣기_프롬프트.md` 안의 프롬프트 블록을 통째로 복사해 Claude Code 채팅창에 붙여넣는다.
    - calc.py·데이터가 이미 있으니 Claude Code는 이걸 재사용해 API·인증·프론트·배포를 붙이면 된다.
 4. 완성 후 실행:
    ```
-   # 백엔드
-   cd backend && uvicorn main:app --reload
+   # 백엔드 (저장소 루트에서)
+   uvicorn backend.main:app --reload
    # 프론트엔드는 프롬프트대로 생성/실행
    ```
 

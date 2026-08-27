@@ -1,4 +1,4 @@
-Param()
+﻿Param()
 Write-Host "Setting up Illgam app (Windows)"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -64,7 +64,10 @@ if (-Not (Test-Path $pythonExe)) { Write-Error "가상환경의 python.exe를 �
 
 Write-Host "Upgrading pip and installing requirements..."
 & $pythonExe -m pip install --upgrade pip
-& $pythonExe -m pip install -r requirements.txt
+# requirements-dev.txt 는 첫 줄에서 requirements.txt 를 -r 로 끌어온다. 즉 런타임 + 테스트 전부다.
+# 개발용 venv 이므로 여기서는 dev 를 설치해야 run_tests.ps1 가 바로 돈다.
+# (프로덕션 이미지는 backend/Dockerfile 이 requirements.txt 만 설치하므로 영향 없다.)
+& $pythonExe -m pip install -r requirements-dev.txt
 
 # Create .env from example if missing
 if (-Not (Test-Path ".env")) {

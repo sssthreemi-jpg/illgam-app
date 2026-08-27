@@ -1,8 +1,7 @@
 fastapi
 uvicorn[standard]
 pydantic
-pytest
 python-jose[cryptography]
+# 해시는 pbkdf2_sha256 (auth.py) 이므로 bcrypt extra 는 필요 없다.
+passlib
 python-dotenv
-passlib[bcrypt]
-httpx2

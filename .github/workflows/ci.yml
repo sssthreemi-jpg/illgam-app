@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11']
+    env:
+      # 기밀 지분 데이터. 저장소에는 없고(.gitignore), 시크릿이 있을 때만 주입한다.
+      # 만드는 법: tar -cz -C backend/data . | base64 -w0
+      ILLGAM_DATA_TAR_B64: ${{ secrets.ILLGAM_DATA_TAR_B64 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements-dev.txt
+
+      # 시크릿이 설정돼 있으면 엑셀 검증본 골든 넘버 테스트(@realdata)까지 전부 돈다.
+      # 없으면 backend/conftest.py 가 합성 fixture 로 폴백하고 골든 넘버 테스트만 skip 된다.
+      - name: Inject confidential data set (optional)
+        if: ${{ env.ILLGAM_DATA_TAR_B64 != '' }}
+        run: |
+          mkdir -p backend/data
+          printf '%s' "$ILLGAM_DATA_TAR_B64" | base64 -d | tar -xz -C backend/data
+
+      - name: Run tests
+        run: python -m pytest backend -q -ra

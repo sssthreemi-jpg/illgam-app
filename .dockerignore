@@ -1,0 +1,33 @@
+# 빌드 컨텍스트는 저장소 루트다(backend/Dockerfile 참조).
+# 여기서 빠뜨리면 이미지 레이어에 그대로 구워지고, `docker save`/`docker history` 로
+# 누구나 꺼낼 수 있다. 런타임 볼륨 마운트로는 이미 구워진 레이어를 덮지 못한다.
+
+# --- 기밀·시크릿 (절대 이미지에 넣지 않는다) ---
+**/.env
+**/.env.*
+!**/.env.example
+backend/data/
+
+# --- 개발 환경 부산물 ---
+.git/
+.github/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+**/.venv/
+node_modules/
+
+# --- 런타임에 필요 없는 것 ---
+backend/tests/
+tests/
+frontend/
+scripts/
+**/*.md
+docker-compose.yml
+pytest.ini
+
+# --- 루트 shim (backend 패키지를 직접 쓴다) ---
+/calc.py
+/main.py
+/models.py
+/auth.py
