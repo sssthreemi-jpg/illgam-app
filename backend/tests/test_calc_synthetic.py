@@ -9,6 +9,8 @@
 
 fixture 구성은 backend/tests/fixtures/data/README.md 참조.
 """
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -302,6 +304,45 @@ def test_admin_payload_keeps_ranges_totals_and_breakdown(fixture_data):
     assert r["ratio_exclusion_total_min"] == 0
     assert r["ratio_exclusion_total_max"] == pytest.approx(400_000_000)
     assert r["shareholder_details"]
+
+
+SHAREHOLDER_DETAIL_FIELDS = {
+    "code", "holding_ratio", "excluded_sales", "adjusted_related_ratio",
+    "after_tax_operating_income", "deemed_gift_income", "gift_tax", "taxable",
+}
+
+
+def test_shareholder_details_never_carry_real_names(fixture_data):
+    """지배주주 실명은 응답에 실리지 않는다.
+
+    화면은 코드(A/B/C/D/C1/C11/C12)로만 표시하므로, 실명을 내보내면 개발자도구
+    네트워크 탭에 그대로 노출될 뿐이다. params.json 의 이름은 서버 안에서만 쓴다.
+    """
+    calc = fixture_data
+    r = calc.evaluate_admin_review(*_PIPELINE_ARGS)
+    names = {s["name"] for s in calc.PARAMS["shareholders"]}
+    assert names, "fixture params.json 에 이름이 있어야 이 테스트가 의미를 가진다"
+
+    for detail in r["shareholder_details"]:
+        assert set(detail.keys()) == SHAREHOLDER_DETAIL_FIELDS, set(detail.keys())
+        assert detail["code"] in calc.CODES
+
+    # 응답 전체를 훑어 이름이 어디에도 없는지 본다(다른 필드로 새는 경우까지).
+    blob = json.dumps(r, ensure_ascii=False, default=str)
+    leaked = sorted(n for n in names if n in blob)
+    assert not leaked, f"응답에 지배주주 실명이 들어 있다: {leaked}"
+
+
+def test_admin_endpoint_response_has_no_real_names(fixture_data):
+    """HTTP 응답 본문 기준으로도 확인한다."""
+    calc = fixture_data
+    body = {"company": SUBJECT, "operating_income": 10_000_000_000, "corporate_tax": 0,
+            "total_sales": 10_000_000_000, "related_sales": {COUNTERPARTY_NONE: 9_000_000_000}}
+    r = client.post("/api/admin/evaluate-review", json=body, headers=_auth(_admin_token()))
+    assert r.status_code == 200, r.text
+    names = {s["name"] for s in calc.PARAMS["shareholders"]}
+    leaked = sorted(n for n in names if n in r.text)
+    assert not leaked, f"응답 본문에 지배주주 실명이 들어 있다: {leaked}"
 
 
 def test_admin_and_public_totals_agree(fixture_data):

@@ -337,8 +337,10 @@ def evaluate_admin_review(company, operating_income, corporate_tax, total_sales,
                               HOLD.get(company, {}).get(shareholder, 0),
                               _normal_ratio(size, teuk))
         shareholder_details.append({
+            # 지배주주 실명은 내보내지 않는다. 화면은 코드(A/B/C/D/C1/C11/C12)로만
+            # 표시하므로 응답에 실어봐야 개발자도구에 노출될 뿐이다.
+            # params.json 의 이름은 서버 안에서만 쓴다.
             "code": shareholder,
-            "name": next((item["name"] for item in PARAMS["shareholders"] if item["code"] == shareholder), shareholder),
             "holding_ratio": HOLD.get(company, {}).get(shareholder, 0),
             "excluded_sales": round(excluded),
             "adjusted_related_ratio": adjusted_ratio,
