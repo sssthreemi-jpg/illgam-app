@@ -247,6 +247,25 @@ function renderImportReport(result){
       <div class="import-actions"><button type="button" id="apply-unmatched">선택한 거래처 표에 반영</button></div>
     </div>` : ''
 
+  // 파일의 이름과 서버 법인명이 다른 건은 접어서 보여준다('기타' → '기타법인' 처럼
+  // 서버가 이어준 것을 사용자가 확인할 수 있어야 한다).
+  const renamed = (result.matched || [])
+    .filter(m => (m.sources || []).some(s => s !== m.company))
+  const renamedBlock = renamed.length ? `
+    <details style="margin-top:10px">
+      <summary style="cursor:pointer;font-size:13px;color:var(--brand-dark)">파일과 이름이 다르게 연결된 ${renamed.length}건 확인</summary>
+      <table class="unmatched-table">
+        <thead><tr><th>파일의 거래처명</th><th>연결된 법인</th><th style="text-align:right">매출액</th></tr></thead>
+        <tbody>
+          ${renamed.map(m => `<tr>
+            <td>${escapeHtml(m.sources.join(', '))}</td>
+            <td>${escapeHtml(m.company)}</td>
+            <td class="amount">${formatNum(m.amount)}원</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </details>` : ''
+
   box.className = 'import-report'
   box.style.display = 'block'
   box.innerHTML = `
@@ -254,6 +273,7 @@ function renderImportReport(result){
     <div>거래처 <strong>${stats.matched_count || 0}건</strong>을 표에 넣었습니다. 합계 <strong>${formatNum(stats.matched_total || 0)}원</strong>.</div>
     <div class="hint" style="margin-top:4px">표 전체를 파일 내용으로 바꿨습니다. 파일에 없던 거래처는 0 입니다.</div>
     ${warnings}
+    ${renamedBlock}
     ${unmatchedBlock}
     <div class="import-actions"><button type="button" id="undo-import" class="secondary">업로드 전으로 되돌리기</button></div>
   `

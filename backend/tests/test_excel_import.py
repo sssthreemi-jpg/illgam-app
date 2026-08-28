@@ -167,6 +167,51 @@ def test_unmatched_rows_are_summed_too():
     assert result["unmatched"] == [{"name": "한올바이오파마", "amount": 300}]
 
 
+# --- 이름 별칭 ---------------------------------------------------------------
+
+def test_other_company_constant_matches_calc():
+    """excel_import 가 상수를 따로 들고 있으므로 calc 와 어긋나면 여기서 잡는다."""
+    from backend import calc
+    assert excel_import.OTHER_COMPANY == calc.OTHER_COMPANY
+
+
+@pytest.mark.parametrize("alias", ["기타", "기타 ", "기타거래처", "기타매출처", "그 외", "기타업체"])
+def test_catch_all_aliases_map_to_other_company(alias):
+    """파일에는 '기타'로, 서버 목록에는 '기타법인'으로 적혀 매칭이 안 되던 건."""
+    rows = [["거래처명", "매출액"], [alias, 500000]]
+    result = excel_import.import_related_sales(_xlsx_bytes(rows), "a.xlsx", COMPANIES)
+    assert result["unmatched"] == []
+    assert result["matched"] == [
+        {"company": "기타법인", "amount": 500000, "sources": [alias.strip()]}
+    ]
+
+
+def test_alias_and_canonical_rows_are_summed():
+    """'기타'와 '기타법인'이 한 파일에 같이 있으면 합쳐야 한다."""
+    rows = [["거래처명", "매출액"], ["기타", 100], ["기타법인", 200], ["기타거래처", 300]]
+    result = excel_import.import_related_sales(_xlsx_bytes(rows), "a.xlsx", COMPANIES)
+    assert result["matched"] == [
+        {"company": "기타법인", "amount": 600, "sources": ["기타", "기타법인", "기타거래처"]}
+    ]
+
+
+def test_alias_never_overrides_a_real_company_name():
+    """별칭이 실제 법인명을 가로채면 안 된다."""
+    companies = ["기타", "기타법인"]     # '기타'라는 법인이 실제로 있는 극단적 경우
+    rows = [["거래처명", "매출액"], ["기타", 100]]
+    result = excel_import.import_related_sales(_xlsx_bytes(rows), "a.xlsx", companies)
+    assert result["matched"][0]["company"] == "기타"
+
+
+def test_alias_is_ignored_when_target_absent_from_list():
+    """가리키는 법인이 목록에 없으면 별칭은 없는 셈 쳐야 한다(없는 법인을 만들지 않는다)."""
+    companies = ["대웅제약"]            # 기타법인 없음
+    rows = [["거래처명", "매출액"], ["기타", 100]]
+    result = excel_import.import_related_sales(_xlsx_bytes(rows), "a.xlsx", companies)
+    assert result["matched"] == []
+    assert result["unmatched"] == [{"name": "기타", "amount": 100}]
+
+
 def test_rows_without_amount_are_skipped_with_warning():
     rows = [
         ["거래처명", "매출액"],

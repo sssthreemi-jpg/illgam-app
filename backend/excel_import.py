@@ -44,6 +44,27 @@ _LEGAL_FORMS = (
 )
 _LEGAL_MARKS = "㈜㈎㈏㈐㈑㈒㈓㈔"
 
+# 서버 목록의 catch-all 거래처. calc.OTHER_COMPANY 와 같은 문자열이어야 하며,
+# test_excel_import.py 가 어긋나면 실패시킨다(여기서 calc 를 import 하면 이 모듈이
+# 지분 데이터 적재에 묶여버리므로 상수를 두고 테스트로 지킨다).
+OTHER_COMPANY = "기타법인"
+
+# 파일에는 있지만 서버 목록과 표기가 다른 이름을 이어준다.
+# 키는 normalize_name() 을 거친 형태로 적고, 값은 서버 법인 목록에 있는 이름이어야 한다.
+# 목록에 없으면 그 별칭은 그냥 무시된다 — 별칭 때문에 없는 법인이 생기면 안 된다.
+#
+# 법인격 표기 차이('(주)대웅제약')는 normalize_name 이 이미 처리하므로 여기 적지 않는다.
+# 여기는 **철자가 아예 다른** 경우만 넣는다.
+NAME_ALIASES = {
+    "기타": OTHER_COMPANY,
+    "기타거래처": OTHER_COMPANY,
+    "기타매출처": OTHER_COMPANY,
+    "기타업체": OTHER_COMPANY,
+    "기타법인등": OTHER_COMPANY,
+    "그외": OTHER_COMPANY,
+    "그밖의법인": OTHER_COMPANY,
+}
+
 
 def normalize_name(value) -> str:
     """비교용 이름. 법인격·괄호·공백·기호를 없앤 뒤 소문자로 만든다.
@@ -290,6 +311,12 @@ def match_entries(entries: List[Tuple[str, int]], companies: List[str]) -> dict:
         key = normalize_name(company)
         if key:
             lookup.setdefault(key, company)
+
+    # 별칭은 실제 법인명을 덮지 않는다(setdefault). 가리키는 법인이 목록에 없으면 건너뛴다.
+    for alias, canonical in NAME_ALIASES.items():
+        target = lookup.get(normalize_name(canonical))
+        if target:
+            lookup.setdefault(normalize_name(alias), target)
 
     matched: Dict[str, int] = {}
     matched_sources: Dict[str, List[str]] = {}
