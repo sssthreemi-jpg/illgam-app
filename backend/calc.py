@@ -245,11 +245,16 @@ def evaluate(company, operating_income, corporate_tax, total_sales,
     myhold = HOLD.get(company, {})
     deemed_total = 0
     tax_total = 0
+    # 문턱을 넘긴 지배주주가 하나라도 있었는지. 사유 문구가 '비율 미달'과
+    # '비율은 넘었으나 보유요건 미충족'을 구분해 설명하려면 필요하다.
+    over_threshold = False
     for k in CODES:
         excl = excluded_by_code[k]
         ratio = 0 if (total_sales - excl) == 0 else (teuk - excl) / (total_sales - excl)
         after = 0 if total_sales == 0 else after_tax_base * (1 - excl / total_sales)
-        deemed = max(0, after) * max(0, ratio - DED_R[size]) * max(0, myhold.get(k, 0) - DED_H[size])
+        if ratio > normal_ratio:
+            over_threshold = True
+        deemed = _deemed_gift(size, after, ratio, myhold.get(k, 0), normal_ratio)
         deemed_total += deemed
         tax_total += _gift_tax(deemed)
 
@@ -263,7 +268,7 @@ def evaluate(company, operating_income, corporate_tax, total_sales,
         "normal_ratio": normal_ratio,
         "deemed_gift_total": round(deemed_total),
         "gift_tax_total": tax_total,
-        "reason": _reason(size, teuk, total_sales, normal_ratio, tax_total),
+        "reason": _reason(size, teuk, total_sales, normal_ratio, tax_total, over_threshold),
         # 거래처별 과세제외 사유·조문. 적용률·금액은 ⑩·§18(100%) 건만 채워지고
         # ⑭ 지분율 상당액 건은 None 이다. 합계도 내보내지 않는다(_ratio_exclusion_totals 주석 참조).
         "exclusion_details": [_public_detail(d) for d in details],
@@ -274,6 +279,30 @@ def _normal_ratio(size, related_sales_total):
     if size == "일반" and related_sales_total > GENERAL_RELATED_SALES_THRESHOLD:
         return GENERAL_HIGH_RELATED_RATIO
     return NORMAL[size]
+
+
+def _deemed_gift(size, after, ratio, holding, normal_ratio):
+    """지배주주 1인의 증여의제이익. 정상거래비율 문턱도 여기서 함께 본다.
+
+    비율이 두 개라는 점이 함정이다.
+      - 정상거래비율(NORMAL, 일반 30%): 과세 대상인지 가르는 **문턱**
+      - 공제거래비율(DED_R, 일반 5%):   증여의제이익 계산식에서 **빼는 값**
+
+    종전에는 계산식의 공제거래비율만 쓰고 문턱을 어디에서도 검사하지 않아,
+    조정비율이 10.3% 인 일반법인도 (10.3% - 5%) > 0 이라는 이유로 세액이 생겼다.
+    문턱은 '초과'(>)여야 하며, 같으면 과세하지 않는다.
+
+    판정에 쓰는 비율은 **과세제외를 반영한 지배주주별 조정비율**이다. ⑭ 과세제외가
+    지배주주마다 달라 비율도 갈리므로, 계산식이 쓰는 값과 판정에 쓰는 값을 같게 둔다.
+    (화면에 '조정 후 비율 28%' 로 찍히면서 '30% 초과라 과세' 가 되는 모순을 막는다.)
+
+    evaluate 와 evaluate_admin_review 가 각자 계산하다 어긋나지 않도록 한 곳에 둔다.
+    """
+    if ratio <= normal_ratio:
+        return 0.0
+    return (max(0, after)
+            * max(0, ratio - DED_R[size])
+            * max(0, holding - DED_H[size]))
 
 
 def evaluate_admin_review(company, operating_income, corporate_tax, total_sales,
@@ -303,7 +332,10 @@ def evaluate_admin_review(company, operating_income, corporate_tax, total_sales,
         adjusted_ratio = ((teuk - excluded) / denominator) if denominator else 0
         adjusted_ratios.append(adjusted_ratio)
         after = after_tax_base * (1 - excluded / total_sales) if total_sales else 0
-        deemed = max(0, after) * max(0, adjusted_ratio - DED_R[size]) * max(0, HOLD.get(company, {}).get(shareholder, 0) - DED_H[size])
+        # evaluate 와 같은 헬퍼를 쓴다. 여기서 식을 따로 쓰면 두 화면의 숫자가 갈린다.
+        deemed = _deemed_gift(size, after, adjusted_ratio,
+                              HOLD.get(company, {}).get(shareholder, 0),
+                              _normal_ratio(size, teuk))
         shareholder_details.append({
             "code": shareholder,
             "name": next((item["name"] for item in PARAMS["shareholders"] if item["code"] == shareholder), shareholder),
@@ -330,9 +362,17 @@ def evaluate_admin_review(company, operating_income, corporate_tax, total_sales,
     })
     return result
 
-def _reason(size, teuk, total, normal, tax):
+def _reason(size, teuk, total, normal, tax, over_threshold):
+    """판정 사유. 실제 판정 결과를 그대로 옮긴다.
+
+    종전에는 `세액 > 0` 만 보고 '정상거래비율을 초과하고' 라고 단정했다. 비율을
+    실제로 비교하지 않은 문장이라, 비율이 문턱 아래인데도 그렇게 적혀 나갔다.
+    """
     if total == 0:
         return "총매출액이 0이라 판정 불가 (총매출 입력 필요)."
+    pct = int(round(normal * 100))
+    if not over_threshold:
+        return f"과세제외 후 특관거래비율이 정상거래비율({pct}%) 이하여서 해당없음입니다."
     if tax > 0:
-        return f"특관거래비율이 정상거래비율({int(normal*100)}%)을 초과하고 보유요건을 충족하여 과세대상입니다."
-    return f"정상거래비율({int(normal*100)}%) 미달 또는 보유요건 미충족으로 해당없음입니다."
+        return f"특관거래비율이 정상거래비율({pct}%)을 초과하고 보유요건을 충족하여 과세대상입니다."
+    return f"정상거래비율({pct}%)은 초과했으나 보유요건 미충족으로 해당없음입니다."
