@@ -14,6 +14,10 @@ class LoginResponse(BaseModel):
 
 class EvaluateRequest(BaseModel):
     company: str
+    # 어느 연도 지분·규모·세율로 계산할지. 미지정이면 서버의 기본(최신) 연도.
+    # 서버에 없는 연도를 보내면 조용히 기본 연도로 넘어가지 않고 400 으로 거절한다 —
+    # 2025 로 계산했다고 믿는데 2026 데이터가 쓰이는 것이 최악이다.
+    year: Optional[str] = None
     operating_income: int
     corporate_tax: int = 0
     total_sales: int

@@ -1,7 +1,7 @@
 """일감몰아주기 증여세 계산 엔진 (엑셀 검증본과 동일 로직).
 지분율 등 민감 데이터는 이 모듈 내부에서만 사용하며, 집계 결과만 반환한다.
 """
-import json, math, os
+import json, math, os, re
 
 DEFAULT_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
@@ -23,18 +23,109 @@ GENERAL_HIGH_RELATED_RATIO = 0.2
 OTHER_COMPANY = "기타법인"
 
 
+# 연도 폴더 이름. backend/data/2025/, backend/data/2026/ …
+YEAR_DIR_RE = re.compile(r"^\d{4}$")
+# 연도 폴더도 없고 기준시점에서 연도를 못 뽑았을 때 쓰는 이름표.
+FALLBACK_YEAR = "기본"
+
+
 def resolve_data_dir(path=None):
     """사용할 데이터 디렉터리. ILLGAM_DATA_DIR 환경변수로 덮어쓸 수 있다."""
     return path or os.environ.get("ILLGAM_DATA_DIR") or DEFAULT_DATA_DIR
 
 
-def data_available(path=None):
-    base = resolve_data_dir(path)
+def _has_all_files(base):
     return all(os.path.isfile(os.path.join(base, name)) for name in DATA_FILES)
 
 
+def _year_dirs(base):
+    """base 아래 연도 폴더 중 5개 파일이 모두 갖춰진 것만 {연도: 경로} 로."""
+    if not os.path.isdir(base):
+        return {}
+    found = {}
+    for name in sorted(os.listdir(base)):
+        sub = os.path.join(base, name)
+        if YEAR_DIR_RE.match(name) and os.path.isdir(sub) and _has_all_files(sub):
+            found[name] = sub
+    return found
+
+
+def data_available(path=None):
+    """연도 폴더 구조든, 예전 평면 구조든 하나라도 온전하면 참."""
+    base = resolve_data_dir(path)
+    return bool(_year_dirs(base)) or _has_all_files(base)
+
+
+class Dataset:
+    """한 연도치 데이터 묶음. 적재 후에는 바꾸지 않는다.
+
+    연도별 계산은 **이 객체를 골라 쓰는 방식**이어야 한다. 요청마다 모듈 전역을
+    갈아끼우는 방식은 쓰면 안 된다 — FastAPI 는 `def` 엔드포인트를 스레드풀에서
+    돌리므로, 두 사람이 동시에 다른 연도로 계산하면 서로의 데이터를 밟는다.
+    예외가 나지 않고 세액만 조용히 틀리는 유형이라 특히 위험하다.
+    """
+
+    def __init__(self, year, base):
+        def _load(name):
+            with open(os.path.join(base, name), encoding="utf-8") as f:
+                return json.load(f)
+
+        self.year = year
+        self.base = base
+        self.sizes = _load("company_sizes.json")          # {법인: 규모}
+        self.hold = _load("shareholder_holdings.json")    # {법인: {A..C12, sum}}
+        self.inter = _load("intercompany_holdings.json")  # {소유법인: {피소유법인: 지분}}
+        self.params = _load("params.json")
+        # 상증령 §34의3 ⑱ 간접출자법인. {수혜법인: [간접출자법인, ...]}
+        # 밑줄로 시작하는 키는 파일 내 주석이므로 제외한다.
+        self.section18 = {k: set(v)
+                          for k, v in _load("section18_indirect_investors.json").items()
+                          if not k.startswith("_")}
+
+        self.codes = [s["code"] for s in self.params["shareholders"]]  # A,B,C,D,C1,C11,C12
+        self.normal = self.params["정상거래비율"]
+        self.ded_r = self.params["공제거래비율"]
+        self.ded_h = self.params["공제보유비율"]
+        self.brackets = self.params["누진세율"]           # [[과표하한, 세율, 누진공제], ...]
+        self.exempt = self.params["면세점"]
+        # "2026.06.30 지분 / 26년 상반기 매출(연환산)" 같은 자유 문구. 결과 리포트에 찍는다.
+        self.as_of = self.params.get("기준시점", "")
+
+
+DATASETS = {}        # {연도: Dataset}
+DEFAULT_YEAR = None  # 연도를 지정하지 않았을 때 쓰는 연도(가장 최근)
+DATA = DEFAULT_DATA_DIR
+DATA_LOADED = False
+
+
+def _flat_year_label(params):
+    """평면 구조에는 연도 폴더가 없다. 기준시점 문자열에서 연도를 뽑아 이름표로 쓴다."""
+    m = re.search(r"(19|20)\d{2}", str(params.get("기준시점", "")))
+    return m.group(0) if m else FALLBACK_YEAR
+
+
+def _bind_legacy_globals():
+    """모듈 전역을 기본 연도 데이터로 맞춘다.
+
+    **연도별 계산에 쓰면 안 된다** — 기본 연도 스냅샷일 뿐이다. 계산 경로는
+    dataset(year) 로 받은 Dataset 만 본다. 이 전역들은 연도 개념이 없던 시절의
+    호출부(main.py 의 법인 존재 확인, 테스트)를 위해 남겨둔 것이다.
+    """
+    global SIZES, HOLD, INTER, PARAMS, SECTION18
+    global CODES, NORMAL, DED_R, DED_H, BRACKETS, EXEMPT
+    if DEFAULT_YEAR is None:
+        SIZES, HOLD, INTER, PARAMS, SECTION18 = {}, {}, {}, {}, {}
+        CODES, NORMAL, DED_R, DED_H, BRACKETS, EXEMPT = [], {}, {}, {}, [], 0
+        return
+    ds = DATASETS[DEFAULT_YEAR]
+    SIZES, HOLD, INTER = ds.sizes, ds.hold, ds.inter
+    PARAMS, SECTION18 = ds.params, ds.section18
+    CODES, NORMAL, DED_R, DED_H = ds.codes, ds.normal, ds.ded_r, ds.ded_h
+    BRACKETS, EXEMPT = ds.brackets, ds.exempt
+
+
 def load_data(path=None):
-    """데이터 세트를 (재)적재한다.
+    """데이터 세트를 (재)적재한다. 연도 폴더가 있으면 전부 메모리에 올린다.
 
     import 시점에 곧바로 파일을 읽지 않고 이 함수로 분리한 이유는 두 가지다.
     - 데이터가 없는 환경(CI 등)에서 import 자체가 FileNotFoundError 로 죽지 않게 한다.
@@ -42,46 +133,58 @@ def load_data(path=None):
 
     반환값: 적재 성공 여부(bool).
     """
-    global DATA, DATA_LOADED, SIZES, HOLD, INTER, PARAMS, SECTION18
-    global CODES, NORMAL, DED_R, DED_H, BRACKETS, EXEMPT
+    global DATA, DATA_LOADED, DATASETS, DEFAULT_YEAR
 
     base = resolve_data_dir(path)
-    if not data_available(base):
-        DATA, DATA_LOADED = base, False
-        SIZES, HOLD, INTER, PARAMS, SECTION18 = {}, {}, {}, {}, {}
-        CODES, NORMAL, DED_R, DED_H, BRACKETS, EXEMPT = [], {}, {}, {}, [], 0
-        return False
-
-    def _load(name):
-        with open(os.path.join(base, name), encoding="utf-8") as f:
-            return json.load(f)
-
     DATA = base
-    SIZES = _load("company_sizes.json")            # {법인: 규모}
-    HOLD  = _load("shareholder_holdings.json")     # {법인: {A..C12, sum}}
-    INTER = _load("intercompany_holdings.json")    # {소유법인: {피소유법인: 지분}}
-    PARAMS = _load("params.json")
-    # 상증령 §34의3 ⑱ 간접출자법인. {수혜법인: [간접출자법인, ...]}
-    # 밑줄로 시작하는 키는 파일 내 주석이므로 제외한다.
-    SECTION18 = {k: set(v) for k, v in _load("section18_indirect_investors.json").items()
-                 if not k.startswith("_")}
 
-    CODES = [s["code"] for s in PARAMS["shareholders"]]   # A,B,C,D,C1,C11,C12
-    NORMAL = PARAMS["정상거래비율"]
-    DED_R  = PARAMS["공제거래비율"]
-    DED_H  = PARAMS["공제보유비율"]
-    BRACKETS = PARAMS["누진세율"]                  # [[과표하한, 세율, 누진공제], ...]
-    EXEMPT = PARAMS["면세점"]
-    DATA_LOADED = True
-    return True
+    datasets = {year: Dataset(year, sub) for year, sub in _year_dirs(base).items()}
+    if not datasets and _has_all_files(base):
+        # 하위호환: 연도 폴더 없이 파일만 있는 예전 배포도 그대로 돈다.
+        ds = Dataset(FALLBACK_YEAR, base)
+        ds.year = _flat_year_label(ds.params)
+        datasets[ds.year] = ds
+
+    DATASETS = datasets
+    DEFAULT_YEAR = max(datasets) if datasets else None
+    DATA_LOADED = bool(datasets)
+    _bind_legacy_globals()
+    return DATA_LOADED
 
 
 load_data()
 
 
-def company_list():
+def available_years():
+    """계산 가능한 연도 목록(최신순)."""
+    return sorted(DATASETS, reverse=True)
+
+
+def year_options():
+    """화면 드롭다운용. 연도와 그 연도 데이터의 기준시점."""
+    return [{"year": y, "as_of": DATASETS[y].as_of} for y in available_years()]
+
+
+def dataset(year=None):
+    """연도에 해당하는 Dataset. year 가 없으면 기본 연도.
+
+    없는 연도를 받으면 조용히 기본 연도로 넘어가지 않고 실패한다 — 사용자가 2025 로
+    계산했다고 믿는데 2026 데이터가 쓰이는 것이 최악이다.
+    """
+    if not DATASETS:
+        raise ValueError("지분 데이터가 적재되지 않았습니다.")
+    if year in (None, ""):
+        return DATASETS[DEFAULT_YEAR]
+    key = str(year)
+    if key not in DATASETS:
+        raise ValueError(
+            f"{key}년 지분 데이터가 없습니다. 계산 가능한 연도: {', '.join(available_years())}")
+    return DATASETS[key]
+
+
+def company_list(year=None):
     """거래처 선택용 법인명 목록(+기타법인). 규모/지분 등 부가정보는 반환하지 않음."""
-    companies = sorted(SIZES.keys())
+    companies = sorted(dataset(year).sizes.keys())
     if "대웅" in companies:
         companies.remove("대웅")
         companies.insert(0, "대웅")
@@ -103,7 +206,7 @@ REASON_14_RATIO = "지배주주의 해당 거래처 지분율 상당액"
 REASON_NONE = "과세제외 사유 없음"
 
 
-def is_section18_indirect_investor(company, counterparty):
+def is_section18_indirect_investor(company, counterparty, ds=None):
     """상증령 §34의3 ⑱ 간접출자법인 여부.
 
     data/section18_indirect_investors.json 에 등재된 관계만 인정한다.
@@ -113,27 +216,32 @@ def is_section18_indirect_investor(company, counterparty):
     사용자 입력을 받지 않는다. 이 판정이 서면 해당 거래처 매출이 전액 제외되어
     세액을 임의로 0 까지 낮출 수 있기 때문이다.
     """
-    return counterparty in SECTION18.get(company, ())
+    ds = ds or dataset()
+    return counterparty in ds.section18.get(company, ())
 
 
-def exclusion_for(company, counterparty, sales, shareholder):
+def exclusion_for(company, counterparty, sales, shareholder, ds=None):
     """거래처 1건 × 지배주주 1인의 과세제외를 판정한다.
 
     ⑩ 기본 과세제외가 성립하면 그것으로 끝내고 ⑭ 는 보지 않는다.
     ⑭ 안에서 사유가 겹치면 합산하지 않고 과세제외금액이 가장 큰 하나만 적용한다.
 
+    ds 를 주지 않으면 기본 연도로 판정한다. 다른 연도로 보려면
+    `calc.dataset("2025")` 를 넘긴다.
+
     반환: {"reason", "article", "rate", "excluded_sales"}
     """
+    ds = ds or dataset()
     # ⑩ 기본 과세제외 — 수혜법인이 해당 거래처에 출자한 경우. 전액 제외.
-    if INTER.get(company, {}).get(counterparty, 0) > 0:
+    if ds.inter.get(company, {}).get(counterparty, 0) > 0:
         return {"reason": REASON_10, "article": ARTICLE_10,
                 "rate": 1.0, "excluded_sales": float(sales)}
 
     # ⑭ 추가 과세제외 — 후보를 모두 세운 뒤 금액이 가장 큰 하나만 적용(합산하지 않는다).
     candidates = []
-    if is_section18_indirect_investor(company, counterparty):
+    if is_section18_indirect_investor(company, counterparty, ds):
         candidates.append((REASON_14_1, ARTICLE_14_1, 1.0))
-    ratio = HOLD.get(counterparty, {}).get(shareholder, 0)
+    ratio = ds.hold.get(counterparty, {}).get(shareholder, 0)
     if ratio > 0:
         candidates.append((REASON_14_RATIO, ARTICLE_14_RATIO, ratio))
     if not candidates:
@@ -144,7 +252,7 @@ def exclusion_for(company, counterparty, sales, shareholder):
             "rate": rate, "excluded_sales": sales * rate}
 
 
-def _ratio_exclusion_totals(details):
+def _ratio_exclusion_totals(details, ds):
     """⑭ 지분율 상당액이 적용된 건들만 모은 지배주주별 과세제외 합계.
 
     **관리자 응답에만 싣는다.** 한때 "여러 거래처가 섞인 합계는 개별 지분율로 분해되지 않는다"는
@@ -153,7 +261,7 @@ def _ratio_exclusion_totals(details):
       - 여러 건을 넣어도 {A,B} 호출과 {A} 호출의 차분으로 B 의 몫이 정확히 복원된다.
     거래처 건수 임계값이나 버킷화로는 이 차분 공격을 막지 못하므로 아예 내보내지 않는다.
     """
-    totals = {code: 0.0 for code in CODES}
+    totals = {code: 0.0 for code in ds.codes}
     for d in details:
         if d["rate"] is not None:      # ⑩·§18 처럼 주주 무관하게 같은 율인 건은 대상 아님
             continue
@@ -169,10 +277,10 @@ def _public_detail(d):
                               "rate", "excluded_sales")}
 
 
-def _exclusions(company, related_sales):
+def _exclusions(company, related_sales, ds):
     """거래처 전체를 훑어 (특관매출 합계, 지배주주별 과세제외 합계, 거래처별 내역)을 만든다."""
     teuk = 0.0
-    excluded_by_code = {k: 0.0 for k in CODES}
+    excluded_by_code = {k: 0.0 for k in ds.codes}
     details = []
     for counterparty, sales in related_sales.items():
         sales = sales or 0
@@ -180,8 +288,8 @@ def _exclusions(company, related_sales):
             continue
         teuk += sales
         by_shareholder = []
-        for code in CODES:
-            verdict = exclusion_for(company, counterparty, sales, code)
+        for code in ds.codes:
+            verdict = exclusion_for(company, counterparty, sales, code, ds)
             excluded_by_code[code] += verdict["excluded_sales"]
             by_shareholder.append(dict(verdict, code=code))
         # ⑩ 과 §18 은 지배주주와 무관하게 같은 율이 적용되므로 대표값 하나로 요약된다.
@@ -208,11 +316,12 @@ def _exclusions(company, related_sales):
     return teuk, excluded_by_code, details
 
 
-def _gift_tax(base):
-    if base < EXEMPT:
+def _gift_tax(base, ds=None):
+    ds = ds or dataset()
+    if base < ds.exempt:
         return 0
-    rate, deduct = BRACKETS[0][1], BRACKETS[0][2]
-    for low, r, d in BRACKETS:
+    rate, deduct = ds.brackets[0][1], ds.brackets[0][2]
+    for low, r, d in ds.brackets:
         if base >= low:
             rate, deduct = r, d
     tax = base * rate - deduct
@@ -227,40 +336,45 @@ def _after_tax_base(operating_income, corporate_tax, tax_adjustments):
 
 
 def evaluate(company, operating_income, corporate_tax, total_sales,
-             related_sales=None, tax_adjustments=None):
+             related_sales=None, tax_adjustments=None, year=None):
     """집계 결과만 반환 (지분율·지배주주별 내역 미반환).
 
     간접출자 여부는 인자로 받지 않는다. 서버가 §18 등재 데이터로 판정한다.
+    year 를 주면 그 연도 지분·규모·세율로 계산한다. 없으면 기본(최신) 연도.
     """
     related_sales = related_sales or {}
     tax_adjustments = tax_adjustments or {}
-    if company not in SIZES:
-        raise ValueError("알 수 없는 법인")
-    size = SIZES[company]
+    ds = dataset(year)
+    if company not in ds.sizes:
+        raise ValueError(f"{ds.year}년 데이터에 없는 법인입니다: {company}")
+    size = ds.sizes[company]
 
-    teuk, excluded_by_code, details = _exclusions(company, related_sales)
+    teuk, excluded_by_code, details = _exclusions(company, related_sales, ds)
 
     after_tax_base = _after_tax_base(operating_income, corporate_tax, tax_adjustments)
-    normal_ratio = _normal_ratio(size, teuk)
-    myhold = HOLD.get(company, {})
+    normal_ratio = _normal_ratio(size, teuk, ds)
+    myhold = ds.hold.get(company, {})
     deemed_total = 0
     tax_total = 0
     # 문턱을 넘긴 지배주주가 하나라도 있었는지. 사유 문구가 '비율 미달'과
     # '비율은 넘었으나 보유요건 미충족'을 구분해 설명하려면 필요하다.
     over_threshold = False
-    for k in CODES:
+    for k in ds.codes:
         excl = excluded_by_code[k]
         ratio = 0 if (total_sales - excl) == 0 else (teuk - excl) / (total_sales - excl)
         after = 0 if total_sales == 0 else after_tax_base * (1 - excl / total_sales)
         if ratio > normal_ratio:
             over_threshold = True
-        deemed = _deemed_gift(size, after, ratio, myhold.get(k, 0), normal_ratio)
+        deemed = _deemed_gift(size, after, ratio, myhold.get(k, 0), normal_ratio, ds)
         deemed_total += deemed
-        tax_total += _gift_tax(deemed)
+        tax_total += _gift_tax(deemed, ds)
 
     return {
         "company": company,
         "size": size,
+        # 어느 연도 데이터로 계산했는지 결과에 남긴다. 화면 리포트에도 찍는다.
+        "year": ds.year,
+        "data_as_of": ds.as_of,
         "taxable": tax_total > 0,
         "total_sales": total_sales,
         "related_sales_total": teuk,
@@ -275,13 +389,14 @@ def evaluate(company, operating_income, corporate_tax, total_sales,
     }
 
 
-def _normal_ratio(size, related_sales_total):
+def _normal_ratio(size, related_sales_total, ds=None):
+    ds = ds or dataset()
     if size == "일반" and related_sales_total > GENERAL_RELATED_SALES_THRESHOLD:
         return GENERAL_HIGH_RELATED_RATIO
-    return NORMAL[size]
+    return ds.normal[size]
 
 
-def _deemed_gift(size, after, ratio, holding, normal_ratio):
+def _deemed_gift(size, after, ratio, holding, normal_ratio, ds=None):
     """지배주주 1인의 증여의제이익. 정상거래비율 문턱도 여기서 함께 본다.
 
     비율이 두 개라는 점이 함정이다.
@@ -298,34 +413,36 @@ def _deemed_gift(size, after, ratio, holding, normal_ratio):
 
     evaluate 와 evaluate_admin_review 가 각자 계산하다 어긋나지 않도록 한 곳에 둔다.
     """
+    ds = ds or dataset()
     if ratio <= normal_ratio:
         return 0.0
     return (max(0, after)
-            * max(0, ratio - DED_R[size])
-            * max(0, holding - DED_H[size]))
+            * max(0, ratio - ds.ded_r[size])
+            * max(0, holding - ds.ded_h[size]))
 
 
 def evaluate_admin_review(company, operating_income, corporate_tax, total_sales,
-                          related_sales=None, tax_adjustments=None):
+                          related_sales=None, tax_adjustments=None, year=None):
     """관리자 검토 화면 전용 집계. 주주별 적용률(=지분율)까지 노출한다.
 
     과세제외 계산은 evaluate 와 같은 _exclusions 를 쓴다(두 경로가 어긋나지 않도록).
     """
+    ds = dataset(year)
     result = evaluate(company, operating_income, corporate_tax, total_sales,
-                      related_sales, tax_adjustments)
+                      related_sales, tax_adjustments, year=year)
     related_sales = related_sales or {}
     after_tax_base = _after_tax_base(operating_income, corporate_tax, tax_adjustments)
-    teuk, excluded_by_code, details = _exclusions(company, related_sales)
+    teuk, excluded_by_code, details = _exclusions(company, related_sales, ds)
     size = result["size"]
 
     # ⑩ 기본 과세제외분은 지배주주와 무관하게 모두에게 동일하게 빠지는 '공통' 제외분이다.
     common_exclusion = sum(d["sales"] for d in details if d["article"] == ARTICLE_10)
-    ratio_totals = _ratio_exclusion_totals(details)
+    ratio_totals = _ratio_exclusion_totals(details, ds)
 
     exclusions = []
     adjusted_ratios = []
     shareholder_details = []
-    for shareholder in CODES:
+    for shareholder in ds.codes:
         excluded = excluded_by_code[shareholder]
         exclusions.append(excluded)
         denominator = total_sales - excluded
@@ -334,20 +451,20 @@ def evaluate_admin_review(company, operating_income, corporate_tax, total_sales,
         after = after_tax_base * (1 - excluded / total_sales) if total_sales else 0
         # evaluate 와 같은 헬퍼를 쓴다. 여기서 식을 따로 쓰면 두 화면의 숫자가 갈린다.
         deemed = _deemed_gift(size, after, adjusted_ratio,
-                              HOLD.get(company, {}).get(shareholder, 0),
-                              _normal_ratio(size, teuk))
+                              ds.hold.get(company, {}).get(shareholder, 0),
+                              _normal_ratio(size, teuk, ds), ds)
         shareholder_details.append({
             # 지배주주 실명은 내보내지 않는다. 화면은 코드(A/B/C/D/C1/C11/C12)로만
             # 표시하므로 응답에 실어봐야 개발자도구에 노출될 뿐이다.
             # params.json 의 이름은 서버 안에서만 쓴다.
             "code": shareholder,
-            "holding_ratio": HOLD.get(company, {}).get(shareholder, 0),
+            "holding_ratio": ds.hold.get(company, {}).get(shareholder, 0),
             "excluded_sales": round(excluded),
             "adjusted_related_ratio": adjusted_ratio,
             "after_tax_operating_income": after,
             "deemed_gift_income": deemed,
-            "gift_tax": _gift_tax(deemed),
-            "taxable": _gift_tax(deemed) > 0,
+            "gift_tax": _gift_tax(deemed, ds),
+            "taxable": _gift_tax(deemed, ds) > 0,
         })
 
     result.update({

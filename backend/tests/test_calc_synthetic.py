@@ -27,6 +27,8 @@ COUNTERPARTY_NONE = "자차산업"  # 지배주주 지분율 전무 → 과세�
 PUBLIC_FIELDS = {
     "company", "size", "taxable", "total_sales", "related_sales_total",
     "related_sales_ratio", "normal_ratio", "deemed_gift_total", "gift_tax_total",
+    # 계산에 쓴 연도 이름표와 기준시점 문구. 지분 정보가 아니다.
+    "year", "data_as_of",
     "reason", "exclusion_details",
 }
 PUBLIC_DETAIL_FIELDS = {"counterparty", "sales", "reason", "article", "rate", "excluded_sales"}
@@ -393,5 +395,6 @@ def test_companies_endpoint_returns_names_only(fixture_data):
     r = client.get("/api/companies", headers=_auth(_admin_token()))
     assert r.status_code == 200
     data = r.json()
-    assert set(data) == {"companies"}
+    # year 는 어느 연도 목록인지 알려주는 이름표다. 규모·지분 정보는 여전히 없다.
+    assert set(data) == {"companies", "year"}
     assert all(isinstance(name, str) for name in data["companies"])
