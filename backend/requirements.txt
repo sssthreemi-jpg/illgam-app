@@ -5,3 +5,7 @@ python-jose[cryptography]
 # 해시는 pbkdf2_sha256 (auth.py) 이므로 bcrypt extra 는 필요 없다.
 passlib
 python-dotenv
+# 특수관계자 매출 엑셀 업로드/양식 다운로드 (backend/excel_import.py).
+openpyxl
+# FastAPI 가 multipart 업로드를 파싱하려면 필요하다. 없으면 업로드 요청이 500 이 된다.
+python-multipart

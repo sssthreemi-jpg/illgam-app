@@ -2,6 +2,8 @@ const $ = id => document.getElementById(id)
 let token = null
 let myCompany = null
 let lastReviewInput = null
+// 거래처 표와 엑셀 업로드 결과가 같은 목록을 써야 한다. /api/companies 응답을 그대로 담는다.
+let allCompanies = []
 // 서버 calc.OTHER_COMPANY 와 같은 문자열이어야 한다. /api/companies 목록에 포함돼 내려온다.
 const OTHER_COMPANY = '기타법인'
 
@@ -128,6 +130,7 @@ async function loadMyCompany(){
     if(c.ok){
       const cl = await c.json()
       const all = cl.companies || []
+      allCompanies = all
       companySelect.innerHTML = '<option value="">법인을 선택하세요</option>'
       // 판정 대상은 실제 법인만 — 기타법인은 거래처(매출 입력)로만 쓰인다.
       all.filter(name => name !== OTHER_COMPANY).forEach(name=>{
@@ -164,6 +167,206 @@ function renderRelatedCompanies(companies){
     <tr data-company="${escapeHtml(name)}"><td>${escapeHtml(name)}</td><td><input class="ramt" type="number" min="0" value="0" placeholder="0"></td></tr>
   `).join('')
 }
+
+// --- 엑셀 업로드 -------------------------------------------------------------
+// 서버가 파일을 읽어 거래처별 금액만 돌려준다. 표를 채우는 것은 여기서 한다.
+// 서버는 아무것도 저장하지 않으므로, 사용자가 표를 확인하고 '확인'을 눌러야 계산된다.
+
+let relatedSnapshot = null   // 업로드 직전 표 상태 — 되돌리기용
+let lastImport = null        // 미매칭 거래처를 나중에 반영하기 위해 들고 있는다
+
+function snapshotRelated(){
+  const snap = {}
+  document.querySelectorAll('#related_table tbody tr').forEach(tr=>{
+    const input = tr.querySelector('.ramt')
+    snap[tr.dataset.company || ''] = input ? input.value : '0'
+  })
+  return snap
+}
+
+function applyRelatedAmounts(amounts, {reset = false} = {}){
+  document.querySelectorAll('#related_table tbody tr').forEach(tr=>{
+    const name = tr.dataset.company || ''
+    const input = tr.querySelector('.ramt')
+    if(!input) return
+    if(reset) input.value = 0
+    if(Object.prototype.hasOwnProperty.call(amounts, name)) input.value = amounts[name]
+  })
+}
+
+// 법인명을 선택자에 끼워 넣지 않고 행을 훑어 비교한다. 이름에 따옴표·공백이 있어도 안전하고,
+// 표를 그릴 때 쓴 dataset 값과 정확히 같은 문자열로 맞춰볼 수 있다.
+function addRelatedAmount(company, amount){
+  const rows = Array.from(document.querySelectorAll('#related_table tbody tr'))
+  const tr = rows.find(row => (row.dataset.company || '') === company)
+  const input = tr && tr.querySelector('.ramt')
+  if(!input) return false
+  input.value = (Number(input.value) || 0) + amount
+  return true
+}
+
+function setImportStatus(msg){
+  const el = $('import-status')
+  if(el) el.textContent = msg
+}
+
+function showImportError(msg){
+  const box = $('import-report')
+  if(!box) return
+  box.className = 'import-report error'
+  box.style.display = 'block'
+  box.innerHTML = `<div class="import-fail">엑셀을 읽지 못했습니다</div><div style="margin-top:6px">${escapeHtml(msg)}</div>`
+}
+
+function renderImportReport(result){
+  const box = $('import-report')
+  if(!box) return
+  const stats = result.stats || {}
+  const warnings = (result.warnings || [])
+    .map(w => `<div class="import-warn">${escapeHtml(w)}</div>`).join('')
+
+  // 미매칭은 버리지 않는다. 어느 법인으로 넣을지 사용자가 직접 고른다.
+  const unmatched = result.unmatched || []
+  const options = allCompanies
+    .map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')
+  const unmatchedBlock = unmatched.length ? `
+    <div style="margin-top:12px">
+      <strong style="font-size:13px">목록에 없는 거래처 ${unmatched.length}건</strong>
+      <div class="hint" style="margin-top:4px">그대로 두면 계산에 들어가지 않습니다. 넣을 법인을 고른 뒤 아래 버튼을 누르세요.</div>
+      <table class="unmatched-table">
+        <thead><tr><th>파일의 거래처명</th><th style="text-align:right">매출액</th><th style="width:190px">연결할 법인</th></tr></thead>
+        <tbody>
+          ${unmatched.map((u, i) => `
+            <tr data-unmatched-index="${i}">
+              <td>${escapeHtml(u.name)}</td>
+              <td class="amount">${formatNum(u.amount)}원</td>
+              <td><select class="unmatched-target"><option value="">— 넣지 않음 —</option>${options}</select></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+      <div class="import-actions"><button type="button" id="apply-unmatched">선택한 거래처 표에 반영</button></div>
+    </div>` : ''
+
+  // 파일의 이름과 서버 법인명이 다른 건은 접어서 보여준다('기타' → '기타법인' 처럼
+  // 서버가 이어준 것을 사용자가 확인할 수 있어야 한다).
+  const renamed = (result.matched || [])
+    .filter(m => (m.sources || []).some(s => s !== m.company))
+  const renamedBlock = renamed.length ? `
+    <details style="margin-top:10px">
+      <summary style="cursor:pointer;font-size:13px;color:var(--brand-dark)">파일과 이름이 다르게 연결된 ${renamed.length}건 확인</summary>
+      <table class="unmatched-table">
+        <thead><tr><th>파일의 거래처명</th><th>연결된 법인</th><th style="text-align:right">매출액</th></tr></thead>
+        <tbody>
+          ${renamed.map(m => `<tr>
+            <td>${escapeHtml(m.sources.join(', '))}</td>
+            <td>${escapeHtml(m.company)}</td>
+            <td class="amount">${formatNum(m.amount)}원</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </details>` : ''
+
+  box.className = 'import-report'
+  box.style.display = 'block'
+  box.innerHTML = `
+    <h5>엑셀 반영 완료</h5>
+    <div>거래처 <strong>${stats.matched_count || 0}건</strong>을 표에 넣었습니다. 합계 <strong>${formatNum(stats.matched_total || 0)}원</strong>.</div>
+    <div class="hint" style="margin-top:4px">표 전체를 파일 내용으로 바꿨습니다. 파일에 없던 거래처는 0 입니다.</div>
+    ${warnings}
+    ${renamedBlock}
+    ${unmatchedBlock}
+    <div class="import-actions"><button type="button" id="undo-import" class="secondary">업로드 전으로 되돌리기</button></div>
+  `
+}
+
+document.getElementById('template-download')?.addEventListener('click', async ()=>{
+  if(!token){ setImportStatus('로그인 후 이용할 수 있습니다.'); return }
+  setImportStatus('양식을 준비하는 중…')
+  try{
+    const res = await fetch('/api/related-sales/template', {headers:{Authorization:'Bearer '+token}})
+    if(!res.ok) throw new Error(`서버 오류 (${res.status})`)
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = '특수관계자_세부매출_양식.xlsx'
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+    setImportStatus('양식을 내려받았습니다. B열 금액만 채워서 다시 올려주세요.')
+  }catch(e){
+    setImportStatus(`양식을 받지 못했습니다: ${e.message}`)
+  }
+})
+
+document.getElementById('excel-upload-button')?.addEventListener('click', ()=>{
+  if(!token){ setImportStatus('로그인 후 이용할 수 있습니다.'); return }
+  $('excel-upload-input')?.click()
+})
+
+document.getElementById('excel-upload-input')?.addEventListener('change', async (e)=>{
+  const file = e.target.files && e.target.files[0]
+  // 같은 파일을 고쳐서 다시 올릴 수 있어야 하므로 값을 비워 change 가 또 걸리게 한다.
+  e.target.value = ''
+  if(!file) return
+  setImportStatus(`${file.name} 읽는 중…`)
+  const box = $('import-report')
+  if(box) box.style.display = 'none'
+  try{
+    const form = new FormData()
+    form.append('file', file)
+    // Content-Type 은 직접 넣지 않는다. 브라우저가 multipart 경계값을 붙여야 한다.
+    const res = await fetch('/api/related-sales/import', {
+      method: 'POST', headers: {Authorization:'Bearer '+token}, body: form
+    })
+    // 413 은 nginx 가 백엔드에 닿기도 전에 막은 것이라 본문이 JSON 이 아니라 HTML 이다.
+    // 그대로 두면 '서버 오류 (413)' 만 뜨고 사용자는 뭘 해야 할지 알 수 없다.
+    if(res.status === 413){
+      throw new Error('파일이 너무 커서 서버가 받지 못했습니다. 필요한 기간·거래처만 남겨 다시 올리거나 관리자에게 문의하세요.')
+    }
+    const data = await res.json().catch(()=>null)
+    if(!res.ok) throw new Error((data && data.detail) || `서버 오류 (${res.status})`)
+
+    relatedSnapshot = snapshotRelated()
+    lastImport = data
+    const amounts = {}
+    ;(data.matched || []).forEach(m => { amounts[m.company] = m.amount })
+    applyRelatedAmounts(amounts, {reset: true})
+    renderImportReport(data)
+    setImportStatus(`${file.name} 반영됨`)
+  }catch(err){
+    showImportError(err.message || '알 수 없는 오류')
+    setImportStatus('')
+  }
+})
+
+// 리포트는 업로드할 때마다 다시 그려지므로 버튼에 직접 걸지 않고 위임한다.
+document.getElementById('import-report')?.addEventListener('click', (e)=>{
+  if(e.target && e.target.id === 'undo-import'){
+    if(!relatedSnapshot) return
+    applyRelatedAmounts(relatedSnapshot)
+    relatedSnapshot = null
+    lastImport = null
+    const box = $('import-report')
+    if(box){ box.style.display = 'none'; box.innerHTML = '' }
+    setImportStatus('업로드 전 상태로 되돌렸습니다.')
+    return
+  }
+  if(e.target && e.target.id === 'apply-unmatched'){
+    const unmatched = (lastImport && lastImport.unmatched) || []
+    let applied = 0
+    document.querySelectorAll('#import-report tr[data-unmatched-index]').forEach(tr=>{
+      const select = tr.querySelector('.unmatched-target')
+      const target = select && select.value
+      if(!target) return
+      const item = unmatched[Number(tr.dataset.unmatchedIndex)]
+      if(!item) return
+      if(addRelatedAmount(target, item.amount)){
+        applied += 1
+        // 두 번 눌러 금액이 두 배가 되는 사고를 막는다.
+        tr.remove()
+      }
+    })
+    setImportStatus(applied ? `미매칭 ${applied}건을 표에 더했습니다.` : '연결할 법인을 먼저 고르세요.')
+  }
+})
 
 $('evaluate').onclick = async ()=>{
   if($('form-error')) $('form-error').textContent = ''
@@ -300,7 +503,7 @@ function renderReport(r, input){
       </div>
       <div class="report-section" style="overflow:auto"><h3>주주별 계산 상세</h3>
         <table class="report-table detail-table"><thead><tr><th>구분</th><th>지분율</th><th>과세제외매출</th><th>제외 후 특수관계 매출 비율</th><th>세후 영업이익</th><th>증여의제이익</th><th>산출 증여세</th><th>판정</th></tr></thead><tbody>
-          ${(r.shareholder_details || []).map(detail => `<tr><td>${escapeHtml(detail.name)} (${escapeHtml(detail.code)})</td><td class="amount">${(Number(detail.holding_ratio) * 100).toFixed(2)}%</td><td class="amount">${formatNum(detail.excluded_sales)}원</td><td class="amount">${(Number(detail.adjusted_related_ratio) * 100).toFixed(2)}%</td><td class="amount">${formatNum(detail.after_tax_operating_income)}원</td><td class="amount">${formatNum(detail.deemed_gift_income)}원</td><td class="amount">${formatNum(detail.gift_tax)}원</td><td>${detail.taxable ? '<span class="report-status yes">대상</span>' : '<span class="report-status no">비대상</span>'}</td></tr>`).join('')}
+          ${(r.shareholder_details || []).map(detail => `<tr><td>${escapeHtml(detail.code)}</td><td class="amount">${(Number(detail.holding_ratio) * 100).toFixed(2)}%</td><td class="amount">${formatNum(detail.excluded_sales)}원</td><td class="amount">${(Number(detail.adjusted_related_ratio) * 100).toFixed(2)}%</td><td class="amount">${formatNum(detail.after_tax_operating_income)}원</td><td class="amount">${formatNum(detail.deemed_gift_income)}원</td><td class="amount">${formatNum(detail.gift_tax)}원</td><td>${detail.taxable ? '<span class="report-status yes">대상</span>' : '<span class="report-status no">비대상</span>'}</td></tr>`).join('')}
           <tr class="total-row"><th colspan="5">총합</th><td class="amount">${formatNum(r.deemed_gift_total)}원</td><td class="amount">${formatNum(r.gift_tax_total)}원</td><td></td></tr>
         </tbody></table>
         <div class="hint">관리자 인증에서만 표시되는 상세값입니다.</div>

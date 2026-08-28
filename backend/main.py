@@ -1,13 +1,15 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 import os
+import urllib.parse
 
 # SIZES 등 데이터 전역은 calc.load_data() 가 다시 바인딩하므로 이름을 직접 import 하지 않고
 # 모듈을 통해 참조한다(테스트가 fixture 데이터로 갈아끼울 수 있어야 한다).
-from backend import calc
+from backend import calc, excel_import
 from backend.calc import evaluate, evaluate_admin_review, company_list
 from backend.models import LoginRequest, LoginResponse, EvaluateRequest
 from backend.auth import get_current_user, User, authenticate_user, create_access_token
@@ -59,6 +61,47 @@ def login(req: LoginRequest):
 def get_companies(current: User = Depends(get_current_user)):
     # Return only names + '기타법인' (catch-all). No size/ownership data.
     return {"companies": company_list()}
+
+
+XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+@app.get("/api/related-sales/template")
+def related_sales_template(current: User = Depends(get_current_user)):
+    """거래처명이 채워진 빈 엑셀 양식. 사용자는 금액만 채워 다시 올린다."""
+    content = excel_import.build_template(company_list())
+    # 한글 파일명은 Content-Disposition 에 그대로 못 넣는다. ASCII 이름을 주고
+    # RFC 5987 형식으로 한글 이름을 덧붙인다(브라우저는 filename* 를 우선한다).
+    korean = urllib.parse.quote("특수관계자_세부매출_양식.xlsx")
+    return Response(
+        content=content,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={
+            "Content-Disposition": (
+                "attachment; filename=related_sales_template.xlsx; "
+                f"filename*=UTF-8''{korean}"
+            )
+        },
+    )
+
+
+@app.post("/api/related-sales/import")
+async def related_sales_import(
+    file: UploadFile = File(...),
+    current: User = Depends(get_current_user),
+):
+    """업로드한 엑셀/CSV 를 읽어 거래처별 금액을 돌려준다.
+
+    **아무것도 저장하지 않고 계산도 하지 않는다.** 화면이 표를 채우는 데만 쓰는
+    읽기 전용 변환이다. 맞추지 못한 거래처는 버리지 않고 그대로 돌려주며,
+    어디에 넣을지는 사용자가 화면에서 정한다.
+    """
+    content = await file.read()
+    try:
+        return excel_import.import_related_sales(content, file.filename or "", company_list())
+    except ValueError as e:
+        # 파싱 실패는 사용자가 고칠 수 있는 문제다. 그대로 문구를 전달한다.
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get("/api/my-company")

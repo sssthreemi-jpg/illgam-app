@@ -9,6 +9,8 @@
 
 fixture 구성은 backend/tests/fixtures/data/README.md 참조.
 """
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -125,6 +127,88 @@ def test_pipeline_totals(fixture_data):
     assert r["taxable"] is True
 
 
+# --- 정상거래비율 문턱 -------------------------------------------------------
+# 비율이 두 개인 것이 함정이다. 정상거래비율(일반 30%)은 과세 여부를 가르는 문턱이고,
+# 공제거래비율(일반 5%)은 계산식에서 빼는 값이다. 종전에는 문턱을 아무 데서도 검사하지
+# 않아, 조정비율 10.3% 인 일반법인이 (10.3% - 5%) > 0 이라는 이유로 과세로 나왔다.
+# 골든 넘버 케이스는 전부 비율 60~90% 라 이 결함이 드러나지 않았다.
+
+def test_below_normal_ratio_is_not_taxable(fixture_data):
+    """일반 10.3% < 30% → 과세대상이 아니어야 한다(회귀 방지)."""
+    r = fixture_data.evaluate(SUBJECT, 50_000_000_000, 0, 100_000_000_000,
+                              {COUNTERPARTY_NONE: 10_300_000_000})
+    assert r["size"] == "일반"
+    assert r["normal_ratio"] == 0.3
+    assert r["related_sales_ratio"] == pytest.approx(0.103)
+    assert r["gift_tax_total"] == 0
+    assert r["deemed_gift_total"] == 0
+    assert r["taxable"] is False
+
+
+def test_reason_states_ratio_shortfall_not_a_false_claim(fixture_data):
+    """사유 문구가 '30%를 초과' 라고 단정하면 안 된다 — 실제로는 미달이다."""
+    r = fixture_data.evaluate(SUBJECT, 50_000_000_000, 0, 100_000_000_000,
+                              {COUNTERPARTY_NONE: 10_300_000_000})
+    assert "초과하고" not in r["reason"], r["reason"]
+    assert "이하" in r["reason"], r["reason"]
+
+
+def test_ratio_exactly_at_normal_ratio_is_not_taxable(fixture_data):
+    """'초과' 이므로 같은 값은 과세하지 않는다."""
+    r = fixture_data.evaluate(SUBJECT, 50_000_000_000, 0, 100_000_000_000,
+                              {COUNTERPARTY_NONE: 30_000_000_000})
+    assert r["related_sales_ratio"] == pytest.approx(0.3)
+    assert r["taxable"] is False
+    assert r["gift_tax_total"] == 0
+
+
+def test_just_over_normal_ratio_is_taxable(fixture_data):
+    """문턱을 넘으면 정상적으로 과세된다 — 문턱이 과하게 막지 않는지 확인."""
+    r = fixture_data.evaluate(SUBJECT, 50_000_000_000, 0, 100_000_000_000,
+                              {COUNTERPARTY_NONE: 30_100_000_000})
+    assert r["taxable"] is True
+    assert r["gift_tax_total"] > 0
+    assert "초과하고" in r["reason"]
+
+
+def test_threshold_uses_ratio_after_exclusions(fixture_data):
+    """판정 비율은 **과세제외 후** 값이다.
+
+    ⑩ 거래처(마바물산)는 전액 과세제외되므로, 과세제외 전 비율이 90% 여도
+    조정 후에는 0% 가 되어 과세대상이 아니다.
+    """
+    r = fixture_data.evaluate(SUBJECT, 10_000_000_000, 0, 10_000_000_000,
+                              {COUNTERPARTY_10: 9_000_000_000})
+    assert r["related_sales_ratio"] == pytest.approx(0.9), "집계 비율 자체는 90%"
+    assert r["taxable"] is False
+    assert "이하" in r["reason"], r["reason"]
+
+
+def test_admin_review_agrees_with_evaluate_on_the_threshold(fixture_data):
+    """관리자 화면이 식을 따로 계산하다 총계와 어긋나면 안 된다."""
+    args = (SUBJECT, 50_000_000_000, 0, 100_000_000_000,
+            {COUNTERPARTY_NONE: 10_300_000_000})
+    plain = fixture_data.evaluate(*args)
+    admin = fixture_data.evaluate_admin_review(*args)
+    assert admin["gift_tax_total"] == plain["gift_tax_total"] == 0
+    assert all(d["gift_tax"] == 0 for d in admin["shareholder_details"])
+    assert all(d["taxable"] is False for d in admin["shareholder_details"])
+    # 주주별 합계와 총계가 맞아야 한다.
+    assert sum(d["gift_tax"] for d in admin["shareholder_details"]) == admin["gift_tax_total"]
+
+
+def test_admin_shareholder_rows_are_consistent_when_taxable(fixture_data):
+    """과세되는 경우에도 주주별 합계 = 총계 여야 한다."""
+    args = (SUBJECT, 50_000_000_000, 0, 100_000_000_000,
+            {COUNTERPARTY_NONE: 60_000_000_000})
+    admin = fixture_data.evaluate_admin_review(*args)
+    assert admin["gift_tax_total"] > 0
+    assert sum(d["gift_tax"] for d in admin["shareholder_details"]) == admin["gift_tax_total"]
+    # 문턱을 넘겼는데 지분이 0 인 주주(B)는 여전히 과세되지 않는다.
+    b = next(d for d in admin["shareholder_details"] if d["code"] == "B")
+    assert b["holding_ratio"] == 0 and b["gift_tax"] == 0
+
+
 def test_tax_adjustments_are_added_to_operating_income(fixture_data):
     """세후영업이익 = 영업이익 ± 세무조정 - 법인세 상당액."""
     adjusted = fixture_data.evaluate(
@@ -220,6 +304,45 @@ def test_admin_payload_keeps_ranges_totals_and_breakdown(fixture_data):
     assert r["ratio_exclusion_total_min"] == 0
     assert r["ratio_exclusion_total_max"] == pytest.approx(400_000_000)
     assert r["shareholder_details"]
+
+
+SHAREHOLDER_DETAIL_FIELDS = {
+    "code", "holding_ratio", "excluded_sales", "adjusted_related_ratio",
+    "after_tax_operating_income", "deemed_gift_income", "gift_tax", "taxable",
+}
+
+
+def test_shareholder_details_never_carry_real_names(fixture_data):
+    """지배주주 실명은 응답에 실리지 않는다.
+
+    화면은 코드(A/B/C/D/C1/C11/C12)로만 표시하므로, 실명을 내보내면 개발자도구
+    네트워크 탭에 그대로 노출될 뿐이다. params.json 의 이름은 서버 안에서만 쓴다.
+    """
+    calc = fixture_data
+    r = calc.evaluate_admin_review(*_PIPELINE_ARGS)
+    names = {s["name"] for s in calc.PARAMS["shareholders"]}
+    assert names, "fixture params.json 에 이름이 있어야 이 테스트가 의미를 가진다"
+
+    for detail in r["shareholder_details"]:
+        assert set(detail.keys()) == SHAREHOLDER_DETAIL_FIELDS, set(detail.keys())
+        assert detail["code"] in calc.CODES
+
+    # 응답 전체를 훑어 이름이 어디에도 없는지 본다(다른 필드로 새는 경우까지).
+    blob = json.dumps(r, ensure_ascii=False, default=str)
+    leaked = sorted(n for n in names if n in blob)
+    assert not leaked, f"응답에 지배주주 실명이 들어 있다: {leaked}"
+
+
+def test_admin_endpoint_response_has_no_real_names(fixture_data):
+    """HTTP 응답 본문 기준으로도 확인한다."""
+    calc = fixture_data
+    body = {"company": SUBJECT, "operating_income": 10_000_000_000, "corporate_tax": 0,
+            "total_sales": 10_000_000_000, "related_sales": {COUNTERPARTY_NONE: 9_000_000_000}}
+    r = client.post("/api/admin/evaluate-review", json=body, headers=_auth(_admin_token()))
+    assert r.status_code == 200, r.text
+    names = {s["name"] for s in calc.PARAMS["shareholders"]}
+    leaked = sorted(n for n in names if n in r.text)
+    assert not leaked, f"응답 본문에 지배주주 실명이 들어 있다: {leaked}"
 
 
 def test_admin_and_public_totals_agree(fixture_data):

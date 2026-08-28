@@ -82,6 +82,20 @@
     footer{padding:16px 22px;background:rgba(255,255,255,.65);border-top:1px solid var(--line);border-radius:8px;color:#64748b;font-size:12px}
     @media(max-width:800px){.content{grid-template-columns:1fr}.basic-grid{grid-template-columns:1fr}.wrap{margin:16px auto;padding:0 12px}header{padding:18px 20px}}
     table{width:100%;font-size:13px;border-collapse:separate;border-spacing:0;overflow:hidden;border:1px solid var(--line);border-radius:7px}
+    .import-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+    .import-bar .hint{margin-top:0;flex:1;min-width:200px}
+    .import-report{margin-bottom:14px;padding:14px 16px;border-radius:8px;border:1px solid var(--line);background:var(--soft)}
+    .import-report.error{background:#fef2f2;border-color:#fecaca}
+    .import-report h5{margin:0 0 8px;font-size:14px;color:var(--brand-dark)}
+    .import-report .import-warn{margin-top:6px;color:#92400e;background:#fffbeb;border-left:3px solid #f59e0b;padding:8px 10px;border-radius:4px;font-size:12px;line-height:1.5}
+    .import-report .import-fail{color:#b42318;font-weight:700}
+    .unmatched-table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px;background:#fff;border:1px solid var(--line);border-radius:6px}
+    .unmatched-table th,.unmatched-table td{padding:7px 9px;border-bottom:1px solid #edf1f6;text-align:left}
+    .unmatched-table th{background:#f1f5fa;color:#475569;font-weight:700;font-size:12px}
+    .unmatched-table td.amount{text-align:right;font-variant-numeric:tabular-nums}
+    .unmatched-table select{min-height:32px;padding:5px 7px;font-size:13px}
+    .import-actions{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
+    .import-actions button{padding:7px 12px;min-height:34px;font-size:13px}
     #related_table th,#tax_table th{background:#f1f5fa;position:sticky;top:0}
     #related_table td input,#tax_table td input{border:1px solid #d9e3ef;padding:8px;border-radius:5px;min-height:36px}
     #related_table thead th,#tax_table thead th{padding:10px 9px;text-align:left;color:#475569;font-weight:700}
@@ -159,6 +173,16 @@
 
             <section class="input-section">
               <h4 class="input-section-title">2. 특수관계자 세부매출</h4>
+
+              <div class="import-bar">
+                <button type="button" id="template-download" class="secondary">양식 다운로드</button>
+                <button type="button" id="excel-upload-button">엑셀 업로드</button>
+                <input type="file" id="excel-upload-input" accept=".xlsx,.xlsm,.csv,.txt" hidden>
+                <span class="hint" id="import-status">양식을 받아 금액만 채워 올리거나, 회계·ERP 에서 뽑은 파일을 그대로 올려도 됩니다.</span>
+              </div>
+
+              <div id="import-report" class="import-report" style="display:none"></div>
+
               <label for="related_table">법인별 매출액 입력</label>
               <div style="margin-bottom:8px;">
                 <div style="overflow:auto">
@@ -219,7 +243,7 @@
         <ul style="margin-top:10px">
           <li><strong>영업이익</strong>: 세무조정 <em>전</em> 금액입니다. 조정액은 3번에 따로 입력하세요.</li>
           <li><strong>총매출</strong>: 해당 사업연도 전체 매출액</li>
-          <li><strong>특수관계자 세부매출</strong>: 거래처별 매출을 표에 입력합니다. 거래가 없으면 0으로 두세요.</li>
+          <li><strong>특수관계자 세부매출</strong>: 거래처별 매출을 표에 입력합니다. 거래가 없으면 0으로 두세요. 거래처가 많으면 <strong>엑셀 업로드</strong>로 한 번에 채울 수 있습니다 — 양식을 받아 금액만 채우거나, 회계·ERP 파일을 그대로 올려도 됩니다.</li>
           <li><strong>세무조정내역</strong>: 가산은 양수, 차감은 음수 (예: -3500000)</li>
           <li><strong>법인세 상당액</strong>: 세후영업이익에서 차감됩니다.</li>
         </ul>
@@ -261,6 +285,6 @@
     <footer>이 서비스는 데모용입니다. 민감한 원본 데이터는 서버에만 보관됩니다.</footer>
   </div>
 
-  <script src="/app.js?v=20260827-1"></script>
+  <script src="/app.js?v=20260828-2"></script>
 </body>
 </html>
