@@ -57,19 +57,40 @@ def login(req: LoginRequest):
     return {"access_token": token, "token_type": "bearer"}
 
 
+def _dataset_or_400(year):
+    """연도에 해당하는 Dataset. 없는 연도면 400 으로 거절한다.
+
+    조용히 기본 연도로 넘어가면 안 된다 — 사용자는 2025 로 계산했다고 믿는데
+    2026 데이터가 쓰이는 상황이 최악이다.
+    """
+    try:
+        return calc.dataset(year)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/years")
+def get_years(current: User = Depends(get_current_user)):
+    """계산 가능한 연도와 각 연도 데이터의 기준시점. 화면 드롭다운이 쓴다."""
+    return {"years": calc.year_options(), "default": calc.DEFAULT_YEAR}
+
+
 @app.get("/api/companies")
-def get_companies(current: User = Depends(get_current_user)):
+def get_companies(year: str = None, current: User = Depends(get_current_user)):
     # Return only names + '기타법인' (catch-all). No size/ownership data.
-    return {"companies": company_list()}
+    # 법인 목록은 연도마다 다를 수 있다(신설·청산·계열 편입).
+    ds = _dataset_or_400(year)
+    return {"companies": company_list(ds.year), "year": ds.year}
 
 
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 @app.get("/api/related-sales/template")
-def related_sales_template(current: User = Depends(get_current_user)):
+def related_sales_template(year: str = None, current: User = Depends(get_current_user)):
     """거래처명이 채워진 빈 엑셀 양식. 사용자는 금액만 채워 다시 올린다."""
-    content = excel_import.build_template(company_list())
+    ds = _dataset_or_400(year)
+    content = excel_import.build_template(company_list(ds.year))
     # 한글 파일명은 Content-Disposition 에 그대로 못 넣는다. ASCII 이름을 주고
     # RFC 5987 형식으로 한글 이름을 덧붙인다(브라우저는 filename* 를 우선한다).
     korean = urllib.parse.quote("특수관계자_세부매출_양식.xlsx")
@@ -88,6 +109,7 @@ def related_sales_template(current: User = Depends(get_current_user)):
 @app.post("/api/related-sales/import")
 async def related_sales_import(
     file: UploadFile = File(...),
+    year: str = None,
     current: User = Depends(get_current_user),
 ):
     """업로드한 엑셀/CSV 를 읽어 거래처별 금액을 돌려준다.
@@ -96,31 +118,37 @@ async def related_sales_import(
     읽기 전용 변환이다. 맞추지 못한 거래처는 버리지 않고 그대로 돌려주며,
     어디에 넣을지는 사용자가 화면에서 정한다.
     """
+    ds = _dataset_or_400(year)
     content = await file.read()
     try:
-        return excel_import.import_related_sales(content, file.filename or "", company_list())
+        return excel_import.import_related_sales(content, file.filename or "",
+                                                 company_list(ds.year))
     except ValueError as e:
         # 파싱 실패는 사용자가 고칠 수 있는 문제다. 그대로 문구를 전달한다.
         raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get("/api/my-company")
-def my_company(current: User = Depends(get_current_user)):
-    size = calc.SIZES.get(current.company, "알수없음")
-    return {"company": current.company, "size": size}
+def my_company(year: str = None, current: User = Depends(get_current_user)):
+    # 기업 구분은 연도마다 달라질 수 있다(중소 → 중견 승격 등).
+    ds = _dataset_or_400(year)
+    size = ds.sizes.get(current.company, "알수없음")
+    return {"company": current.company, "size": size, "year": ds.year}
 
 
 @app.post("/api/evaluate")
 def api_evaluate(req: EvaluateRequest, current: User = Depends(get_current_user)):
     if req.company != current.company and not current.is_admin:
         raise HTTPException(status_code=403, detail="권한 없음")
-    if req.company not in calc.SIZES:
-        raise HTTPException(status_code=400, detail="계산 가능한 법인을 선택하세요")
+    ds = _dataset_or_400(req.year)
+    if req.company not in ds.sizes:
+        raise HTTPException(status_code=400,
+                            detail=f"{ds.year}년 데이터에 없는 법인입니다. 법인 또는 연도를 확인하세요.")
     # 간접출자 여부는 클라이언트가 정하지 않는다. 서버가 지분 데이터에서 도출한다
     # (플래그가 서면 해당 거래처 매출이 전액 제외되어 세액을 임의로 낮출 수 있다).
     res = evaluate(req.company, req.operating_income, req.corporate_tax,
                    req.total_sales, req.related_sales,
-                   tax_adjustments=req.tax_adjustments)
+                   tax_adjustments=req.tax_adjustments, year=ds.year)
     # calc.evaluate already returns only allowed aggregate fields
     return res
 
@@ -129,23 +157,26 @@ def api_evaluate(req: EvaluateRequest, current: User = Depends(get_current_user)
 def admin_evaluate_review(req: EvaluateRequest, current: User = Depends(get_current_user)):
     if not current.is_admin:
         raise HTTPException(status_code=403, detail="관리자 권한 필요")
-    if req.company not in calc.SIZES:
-        raise HTTPException(status_code=400, detail="계산 가능한 법인을 선택하세요")
+    ds = _dataset_or_400(req.year)
+    if req.company not in ds.sizes:
+        raise HTTPException(status_code=400,
+                            detail=f"{ds.year}년 데이터에 없는 법인입니다. 법인 또는 연도를 확인하세요.")
     return evaluate_admin_review(req.company, req.operating_income, req.corporate_tax,
                                  req.total_sales, req.related_sales,
-                                 tax_adjustments=req.tax_adjustments)
+                                 tax_adjustments=req.tax_adjustments, year=ds.year)
 
 
 @app.get("/api/admin/summary")
-def admin_summary(current: User = Depends(get_current_user)):
+def admin_summary(year: str = None, current: User = Depends(get_current_user)):
     if not current.is_admin:
         raise HTTPException(status_code=403, detail="관리자 권한 필요")
+    ds = _dataset_or_400(year)
     out = []
-    for c in calc.SIZES.keys():
+    for c in ds.sizes.keys():
         # For admin summary we run evaluate with zeroed inputs (admin should supply real inputs in UI)
-        r = evaluate(c, 0, 0, 0, {})
+        r = evaluate(c, 0, 0, 0, {}, year=ds.year)
         out.append({"company": c, "taxable": r["taxable"], "gift_tax_total": r["gift_tax_total"]})
-    return {"summary": out}
+    return {"summary": out, "year": ds.year}
 
 
 # Serve frontend static files in development: mount after API routes so /api/* takes precedence

@@ -145,6 +145,11 @@
               <h4 class="input-section-title">1. 기본정보 입력</h4>
               <div class="basic-grid">
                 <div>
+                  <label for="data_year">검토 연도</label>
+                  <select id="data_year"></select>
+                  <div class="hint" id="year-as-of">서버에 저장된 연도별 지분·규모 데이터로 계산합니다.</div>
+                </div>
+                <div>
                   <label for="company">법인</label>
                   <select id="company" required>
                     <option value="">법인을 선택하세요</option>
@@ -285,6 +290,6 @@
     <footer>이 서비스는 데모용입니다. 민감한 원본 데이터는 서버에만 보관됩니다.</footer>
   </div>
 
-  <script src="/app.js?v=20260828-2"></script>
+  <script src="/app.js?v=20260828-3"></script>
 </body>
 </html>

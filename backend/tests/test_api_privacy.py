@@ -24,7 +24,7 @@ def test_api_response_privacy():
     body = {"company": "이지메디컴", "operating_income": 1000000, "corporate_tax": 0, "total_sales": 1000000, "related_sales": {"대웅제약": 100000}}
     r = client.post("/api/evaluate", json=body, headers=headers)
     assert r.status_code == 200
-    allowed = {"company","size","taxable","total_sales","related_sales_total","related_sales_ratio","normal_ratio","deemed_gift_total","gift_tax_total","reason","exclusion_details"}
+    allowed = {"company","size","taxable","total_sales","related_sales_total","related_sales_ratio","normal_ratio","deemed_gift_total","gift_tax_total","reason","exclusion_details","year","data_as_of"}
     assert set(r.json().keys()) <= allowed, set(r.json().keys()) - allowed
 
     # ⑭ 지분율 상당액 건에서 지분율이 역산될 만한 값이 새어나가면 안 된다.
@@ -47,4 +47,4 @@ def test_api_response_privacy():
     r3 = client.get("/api/my-company", headers=headers)
     assert r3.status_code == 200
     keys = set(r3.json().keys())
-    assert keys <= {"company", "size"}
+    assert keys <= {"company", "size", "year"}

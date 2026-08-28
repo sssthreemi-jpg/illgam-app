@@ -116,33 +116,106 @@ document.getElementById('pdf-download')?.addEventListener('click', ()=>{
   window.print()
 })
 
+// --- 검토 연도 ---------------------------------------------------------------
+// 지분·기업규모·세율은 해마다 바뀌므로 서버가 연도별 데이터를 들고 있다.
+// 화면은 연도를 골라 보내기만 하고, 어떤 데이터가 쓰였는지는 응답의 year 로 확인한다.
+
+let currentYear = null
+let yearAsOf = {}    // {연도: 기준시점 문구}
+
+function yearQuery(prefix = '?'){
+  return currentYear ? `${prefix}year=${encodeURIComponent(currentYear)}` : ''
+}
+
+function updateYearHint(){
+  const el = $('year-as-of')
+  if(!el) return
+  const asOf = yearAsOf[currentYear]
+  el.textContent = asOf
+    ? `기준시점: ${asOf}`
+    : '서버에 저장된 연도별 지분·규모 데이터로 계산합니다.'
+}
+
+async function apiGet(path){
+  const res = await fetch(path, {headers: token ? {Authorization:'Bearer '+token} : {}})
+  const data = await res.json().catch(()=>null)
+  if(!res.ok) throw new Error((data && data.detail) || `서버 오류 (${res.status})`)
+  return data
+}
+
+async function loadYears(){
+  const select = $('data_year')
+  if(!select) return
+  try{
+    const j = await apiGet('/api/years')
+    const years = j.years || []
+    yearAsOf = {}
+    years.forEach(o => { yearAsOf[o.year] = o.as_of || '' })
+    select.innerHTML = years
+      .map(o => `<option value="${escapeHtml(o.year)}">${escapeHtml(o.year)}년</option>`).join('')
+    currentYear = j.default || (years[0] && years[0].year) || null
+    if(currentYear) select.value = currentYear
+    // 연도가 하나뿐이면 고를 것이 없다.
+    select.disabled = years.length <= 1
+  }catch(e){
+    select.innerHTML = '<option value="">(연도를 불러오지 못했습니다)</option>'
+    select.disabled = true
+  }
+  updateYearHint()
+}
+
 async function loadMyCompany(){
-  const res = await fetch('/api/my-company',{headers: token?{Authorization:'Bearer '+token}:{}})
-  if(!res.ok){ showError('내 법인 정보를 불러오지 못했습니다'); return }
-  const j = await res.json()
+  await loadYears()
+  await refreshForYear({preserveAmounts: false})
+}
+
+async function refreshForYear({preserveAmounts = true} = {}){
+  // 연도를 바꿔도 이미 입력한 금액을 날리지 않는다. 그 연도에 없는 거래처만 빠진다.
+  const previous = preserveAmounts ? getRelatedFromTable() : null
+
+  let j
+  try{
+    j = await apiGet(`/api/my-company${yearQuery()}`)
+  }catch(e){
+    showError(e.message || '내 법인 정보를 불러오지 못했습니다')
+    return
+  }
   myCompany = j
   $('mycompany').textContent = j.size ? `${j.company} · ${j.size}` : (j.company || '')
   $('hint').textContent = ''
+
   const companySelect = $('company')
+  const keepCompany = companySelect.value
   // Populate only the public company-name list. Sensitive ownership data stays server-side.
   try{
-    const c = await fetch('/api/companies',{headers: token?{Authorization:'Bearer '+token}:{}})
-    if(c.ok){
-      const cl = await c.json()
-      const all = cl.companies || []
-      allCompanies = all
-      companySelect.innerHTML = '<option value="">법인을 선택하세요</option>'
-      // 판정 대상은 실제 법인만 — 기타법인은 거래처(매출 입력)로만 쓰인다.
-      all.filter(name => name !== OTHER_COMPANY).forEach(name=>{
-        const option = document.createElement('option')
-        option.value = name
-        option.textContent = name
-        companySelect.appendChild(option)
-      })
-      // 거래처 표는 서버 목록을 그대로 쓴다. 프론트에서 이름을 만들지 않는다.
-      renderRelatedCompanies(all)
-    }
-  }catch(e){ /* ignore */ }
+    const cl = await apiGet(`/api/companies${yearQuery()}`)
+    const all = cl.companies || []
+    allCompanies = all
+    companySelect.innerHTML = '<option value="">법인을 선택하세요</option>'
+    // 판정 대상은 실제 법인만 — 기타법인은 거래처(매출 입력)로만 쓰인다.
+    all.filter(name => name !== OTHER_COMPANY).forEach(name=>{
+      const option = document.createElement('option')
+      option.value = name
+      option.textContent = name
+      companySelect.appendChild(option)
+    })
+    // 거래처 표는 서버 목록을 그대로 쓴다. 프론트에서 이름을 만들지 않는다.
+    renderRelatedCompanies(all)
+    if(keepCompany && all.includes(keepCompany)) companySelect.value = keepCompany
+  }catch(e){
+    showError(e.message || '법인 목록을 불러오지 못했습니다')
+    return
+  }
+
+  if(previous){
+    applyRelatedAmounts(previous)
+    // 사라진 거래처에 금액이 있었다면 조용히 넘어가지 않고 알린다.
+    const dropped = Object.keys(previous)
+      .filter(name => Number(previous[name]) > 0 && !allCompanies.includes(name))
+    setImportStatus(dropped.length
+      ? `${currentYear}년 데이터에 없는 거래처 ${dropped.length}건의 입력값이 빠졌습니다: ${dropped.join(', ')}`
+      : '')
+  }
 
   if(j.company !== 'admin'){
     companySelect.value = j.company || ''
@@ -159,6 +232,17 @@ async function loadMyCompany(){
     $('company_size').value = ''
   }
 }
+
+document.getElementById('data_year')?.addEventListener('change', async (e)=>{
+  currentYear = e.target.value || null
+  updateYearHint()
+  // 연도가 바뀌면 지분·규모·법인 목록이 통째로 달라진다. 엑셀 반영 결과도 무효다.
+  const box = $('import-report')
+  if(box){ box.style.display = 'none'; box.innerHTML = '' }
+  relatedSnapshot = null
+  lastImport = null
+  await refreshForYear({preserveAmounts: true})
+})
 
 function renderRelatedCompanies(companies){
   const tbody = document.querySelector('#related_table tbody')
@@ -283,12 +367,16 @@ document.getElementById('template-download')?.addEventListener('click', async ()
   if(!token){ setImportStatus('로그인 후 이용할 수 있습니다.'); return }
   setImportStatus('양식을 준비하는 중…')
   try{
-    const res = await fetch('/api/related-sales/template', {headers:{Authorization:'Bearer '+token}})
+    // 거래처 목록은 연도마다 다를 수 있으므로 양식도 연도를 따라간다.
+    const res = await fetch(`/api/related-sales/template${yearQuery()}`,
+                            {headers:{Authorization:'Bearer '+token}})
     if(!res.ok) throw new Error(`서버 오류 (${res.status})`)
     const blob = await res.blob()
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url; a.download = '특수관계자_세부매출_양식.xlsx'
+    a.href = url
+    a.download = currentYear ? `특수관계자_세부매출_양식_${currentYear}.xlsx`
+                             : '특수관계자_세부매출_양식.xlsx'
     document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
     setImportStatus('양식을 내려받았습니다. B열 금액만 채워서 다시 올려주세요.')
   }catch(e){
@@ -313,7 +401,7 @@ document.getElementById('excel-upload-input')?.addEventListener('change', async 
     const form = new FormData()
     form.append('file', file)
     // Content-Type 은 직접 넣지 않는다. 브라우저가 multipart 경계값을 붙여야 한다.
-    const res = await fetch('/api/related-sales/import', {
+    const res = await fetch(`/api/related-sales/import${yearQuery()}`, {
       method: 'POST', headers: {Authorization:'Bearer '+token}, body: form
     })
     // 413 은 nginx 가 백엔드에 닿기도 전에 막은 것이라 본문이 JSON 이 아니라 HTML 이다.
@@ -388,13 +476,14 @@ $('evaluate').onclick = async ()=>{
     const tax_adjustments = getTaxFromTable()
 
     const body = {
-      company, operating_income, corporate_tax, total_sales, related_sales: related, tax_adjustments
+      company, year: currentYear,
+      operating_income, corporate_tax, total_sales, related_sales: related, tax_adjustments
     }
     const reviewPath = myCompany && myCompany.company === 'admin' ? '/api/admin/evaluate-review' : '/api/evaluate'
     const r = await post(reviewPath, body)
     if(r && typeof r === 'object' && r.company && r.reason) {
       // 기업 구분은 서버가 판정한 값(r.size)이 정본이다. 화면 선택값은 응답이 없을 때만 쓴다.
-      lastReviewInput = {company, companySize: r.size || $('company_size').value, operating_income, corporate_tax, total_sales, related, tax_adjustments}
+      lastReviewInput = {company, year: r.year || currentYear, companySize: r.size || $('company_size').value, operating_income, corporate_tax, total_sales, related, tax_adjustments}
       const isAdmin = myCompany && myCompany.company === 'admin'
       renderReport(r, {...lastReviewInput, isAdmin})
       $('rawdata-button').style.display = isAdmin ? 'inline-block' : 'none'
@@ -432,6 +521,7 @@ function renderRawData(input){
     <section class="report-section"><h3>기본정보</h3><table class="raw-table"><tbody>
       <tr><th>법인명</th><td>${escapeHtml(input.company)}</td></tr>
       <tr><th>기업 구분</th><td>${escapeHtml(input.companySize || '')}</td></tr>
+      <tr><th>검토 연도</th><td>${escapeHtml(input.year || '')}</td></tr>
       <tr><th>총매출</th><td style="text-align:right">${formatNum(input.total_sales)}원</td></tr>
       <tr><th>영업이익</th><td style="text-align:right">${formatNum(input.operating_income)}원</td></tr>
       <tr><th>법인세 상당액</th><td style="text-align:right">${formatNum(input.corporate_tax)}원</td></tr>
@@ -517,6 +607,7 @@ function renderReport(r, input){
       <table class="report-table"><tbody>
         <tr><th>법인명</th><td>${escapeHtml(input.company)}</td></tr>
         <tr><th>기업 구분</th><td>${escapeHtml(input.companySize || '미입력')}</td></tr>
+        <tr><th>검토 연도</th><td>${escapeHtml(r.year || '')}${r.data_as_of ? ` <span class="muted">(${escapeHtml(r.data_as_of)})</span>` : ''}</td></tr>
         <tr><th>총매출</th><td class="amount">${formatNum(input.total_sales)}원</td></tr>
         <tr><th>영업이익</th><td class="amount">${formatNum(input.operating_income)}원</td></tr>
         <tr><th>법인세 상당액</th><td class="amount">${formatNum(input.corporate_tax)}원</td></tr>

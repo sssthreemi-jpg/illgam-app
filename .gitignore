@@ -1,6 +1,11 @@
 # 기밀 지분 데이터. 배포 파이프라인/CI 시크릿으로만 주입한다.
-# (backend/tests/fixtures/data/ 의 합성 데이터는 이 패턴에 걸리지 않으며 추적 대상이다.)
+# (backend/tests/fixtures/ 의 합성 데이터는 이 패턴에 걸리지 않으며 추적 대상이다.)
+#
+# 연도별 하위 폴더(backend/data/2026/…)까지 반드시 함께 막아야 한다.
+# `backend/data/*.json` 는 한 단계만 걸러서, 연도 폴더를 만들면 실제 지분 데이터가
+# 그대로 추적 대상이 된다.
 backend/data/*.json
+backend/data/**/*.json
 
 .env
 __pycache__/
