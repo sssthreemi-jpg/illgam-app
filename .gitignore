@@ -7,6 +7,10 @@
 backend/data/*.json
 backend/data/**/*.json
 
+# 데이터 변환 스크립트가 저장소 루트에 떨어뜨리는 중간 산출물.
+# 지분율 원본이 그대로 들어가므로 실수로 커밋되지 않게 막는다.
+/extracted_*.json
+
 .env
 __pycache__/
 *.pyc
