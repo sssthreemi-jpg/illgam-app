@@ -296,6 +296,11 @@ document.getElementById('excel-upload-input')?.addEventListener('change', async 
     const res = await fetch('/api/related-sales/import', {
       method: 'POST', headers: {Authorization:'Bearer '+token}, body: form
     })
+    // 413 은 nginx 가 백엔드에 닿기도 전에 막은 것이라 본문이 JSON 이 아니라 HTML 이다.
+    // 그대로 두면 '서버 오류 (413)' 만 뜨고 사용자는 뭘 해야 할지 알 수 없다.
+    if(res.status === 413){
+      throw new Error('파일이 너무 커서 서버가 받지 못했습니다. 필요한 기간·거래처만 남겨 다시 올리거나 관리자에게 문의하세요.')
+    }
     const data = await res.json().catch(()=>null)
     if(!res.ok) throw new Error((data && data.detail) || `서버 오류 (${res.status})`)
 

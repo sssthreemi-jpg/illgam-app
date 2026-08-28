@@ -91,6 +91,12 @@ ERP 추출본은 제목·기간 행이 위에 붙고 코드/비고 열이 섞이
 의존성은 `openpyxl`(xlsx 읽기·쓰기)과 `python-multipart`(FastAPI 업로드 파싱)이며 둘 다
 `backend/requirements.txt` 에 있습니다. `python-multipart` 가 빠지면 업로드 요청이 500 이 됩니다.
 
+업로드 상한은 5MB(`backend/excel_import.py` 의 `MAX_UPLOAD_BYTES`)이고 최대 5000행을 읽습니다.
+**도커 배포에서는 `frontend/nginx.conf` 의 `client_max_body_size` 도 함께 봐야 합니다.**
+nginx 기본값이 1m 이라 그냥 두면 1MB 넘는 파일이 백엔드에 닿기도 전에 413 으로 잘리고,
+로컬 개발에서는 nginx 를 거치지 않아 이 증상이 드러나지 않습니다. 상한 판단은 백엔드가
+하도록 nginx 쪽을 6m 으로 조금 크게 잡아 두었습니다.
+
 ## 테스트와 CI
 
 지분 데이터(`backend/data/*.json`)는 기밀이라 저장소에 커밋하지 않습니다. 그래서
