@@ -23,10 +23,16 @@ GENERAL_HIGH_RELATED_RATIO = 0.2
 # 연도별로 달라지는 값이 아니어서 폴백을 둬도 조용히 틀릴 여지가 없다.
 #
 # **공제보유비율(params.json "공제보유비율", 일반 0%·중견 5%·중소 10%) 과 다른 값이다.**
-#   - 한계보유비율: 지배주주와 그 친족의 보유비율 **합계**가 넘어야 과세대상이 되는 문턱
-#   - 공제보유비율: 증여의제이익 계산식에서 **개인별로 빼는 값**
+#   - 한계보유비율: 이 사람이 과세대상 주주인지 가르는 **문턱**
+#   - 공제보유비율: 증여의제이익 계산식에서 보유비율에서 **빼는 값**
 # 검토 실무자료의 '직·간접 주식보유비율' 표가 일반기업의 차감값을 0.00% 로 적는 것은
 # 후자를 가리킨다. 이름이 비슷해 한동안 문턱이 통째로 빠져 있었다.
+#
+# 문턱은 지배주주등 **합계가 아니라 개인별**로 본다. 상증법 §45의3 ① 이 납세의무자를
+# "한계보유비율을 초과하여 보유한 주주에 한정" 하기 때문이다. 검증본의 '직·간접
+# 주식보유비율' 표가 이를 그대로 보여준다 — 대웅바이오(일반, 2025) 표에는 3% 를
+# 넘는 A·C·D 만 있고 0.45%/0.75%/0.30% 인 C1·C11·C12 는 아예 등재되지 않는다.
+# 합계로 보면 이 셋에도 세액이 붙어 검증본과 어긋난다.
 DEFAULT_HOLDING_LIMIT = {"일반": 0.03, "중견": 0.1, "중소": 0.1}
 
 # 개별 법인으로 잡히지 않는 나머지 거래처를 담는 catch-all 이름.
@@ -341,17 +347,6 @@ def _gift_tax(base, ds=None):
     tax = base * rate - deduct
     return int(math.floor(tax / 10) * 10)   # 10원 미만 절사
 
-def _holdings_sum(company, ds):
-    """요건③ 판정에 쓰는 지배주주와 그 친족의 보유비율 **합계**.
-
-    "sum" 은 적재 시점에 A~C12 를 더해 넣어둔 값이다(scripts/rebuild_year_data.py).
-    키가 없는 예전 스냅샷이면 그 자리에서 더해 쓴다 — 합계를 못 구했다고 요건③ 이
-    조용히 빠지는 쪽이 훨씬 위험하다.
-    """
-    myhold = ds.hold.get(company, {})
-    total = myhold.get("sum")
-    return sum(myhold.get(k, 0) for k in ds.codes) if total is None else total
-
 
 def _after_tax_base(operating_income, corporate_tax, tax_adjustments):
     """세후영업이익 = 영업이익 ± 세무조정금액 - 법인세 상당액.
@@ -380,7 +375,6 @@ def evaluate(company, operating_income, corporate_tax, total_sales,
     after_tax_base = _after_tax_base(operating_income, corporate_tax, tax_adjustments)
     normal_ratio = _normal_ratio(size, teuk, ds)
     myhold = ds.hold.get(company, {})
-    holdings_sum = _holdings_sum(company, ds)
     deemed_total = 0
     tax_total = 0
     # 문턱을 넘긴 지배주주가 하나라도 있었는지. 사유 문구가 '비율 미달'과
@@ -392,8 +386,7 @@ def evaluate(company, operating_income, corporate_tax, total_sales,
         after = 0 if total_sales == 0 else after_tax_base * (1 - excl / total_sales)
         if ratio > normal_ratio:
             over_threshold = True
-        deemed = _deemed_gift(size, after, ratio, myhold.get(k, 0), normal_ratio, ds,
-                              holdings_sum=holdings_sum)
+        deemed = _deemed_gift(size, after, ratio, myhold.get(k, 0), normal_ratio, ds)
         deemed_total += deemed
         tax_total += _gift_tax(deemed, ds)
 
@@ -424,37 +417,32 @@ def _normal_ratio(size, related_sales_total, ds=None):
     return ds.normal[size]
 
 
-def _deemed_gift(size, after, ratio, holding, normal_ratio, ds=None, holdings_sum=None):
+def _deemed_gift(size, after, ratio, holding, normal_ratio, ds=None):
     """지배주주 1인의 증여의제이익. 과세요건 문턱도 여기서 함께 본다.
 
     비율이 네 개라 이름만 보고 고르면 틀린다. 요건별로 쓰는 값이 다르다.
       - 정상거래비율(NORMAL, 일반 30%):   요건② 거래비율 **문턱**
       - 공제거래비율(DED_R, 일반 5%):     계산식에서 거래비율에서 **빼는 값**
-      - 한계보유비율(LIMIT_H, 일반 3%):   요건③ 보유비율 **문턱**. 개인이 아니라
-                                          지배주주와 그 친족의 **합계**로 본다.
-      - 공제보유비율(DED_H, 일반 0%):     계산식에서 개인 보유비율에서 **빼는 값**
+      - 한계보유비율(LIMIT_H, 일반 3%):   요건③ 보유비율 **문턱**. 개인별로 본다.
+      - 공제보유비율(DED_H, 일반 0%):     계산식에서 보유비율에서 **빼는 값**
 
     종전에는 계산식의 공제거래비율만 쓰고 문턱을 어디에서도 검사하지 않아,
     조정비율이 10.3% 인 일반법인도 (10.3% - 5%) > 0 이라는 이유로 세액이 생겼다.
     같은 함정을 보유비율 쪽에서 한 번 더 밟아, 요건③ 이 통째로 빠져 있었다.
     공제보유비율이 중소는 한계보유비율과 같은 10% 라 중소만 우연히 맞고,
-    일반·중견은 과세대상이 아닌 법인에 세액이 붙었다.
+    일반은 공제보유비율이 0% 라 0.3% 를 가진 주주에게도 세액이 붙었다.
     문턱은 둘 다 '초과'(>)여야 하며, 같으면 과세하지 않는다.
 
     판정에 쓰는 비율은 **과세제외를 반영한 지배주주별 조정비율**이다. ⑭ 과세제외가
     지배주주마다 달라 비율도 갈리므로, 계산식이 쓰는 값과 판정에 쓰는 값을 같게 둔다.
     (화면에 '조정 후 비율 28%' 로 찍히면서 '30% 초과라 과세' 가 되는 모순을 막는다.)
 
-    holdings_sum 은 shareholder_holdings.json 의 "sum"(A~C12 합계). None 이면 요건③
-    을 보지 않는다 — 이 인자를 몰랐던 예전 호출부의 동작을 그대로 두기 위한 것이며,
-    계산 경로 두 곳은 반드시 넘긴다.
-
     evaluate 와 evaluate_admin_review 가 각자 계산하다 어긋나지 않도록 한 곳에 둔다.
     """
     ds = ds or dataset()
     if ratio <= normal_ratio:
         return 0.0
-    if holdings_sum is not None and holdings_sum <= ds.limit_h[size]:
+    if holding <= ds.limit_h[size]:
         return 0.0
     return (max(0, after)
             * max(0, ratio - ds.ded_r[size])
@@ -474,7 +462,6 @@ def evaluate_admin_review(company, operating_income, corporate_tax, total_sales,
     after_tax_base = _after_tax_base(operating_income, corporate_tax, tax_adjustments)
     teuk, excluded_by_code, details = _exclusions(company, related_sales, ds)
     size = result["size"]
-    holdings_sum = _holdings_sum(company, ds)
 
     # ⑩ 기본 과세제외분은 지배주주와 무관하게 모두에게 동일하게 빠지는 '공통' 제외분이다.
     common_exclusion = sum(d["sales"] for d in details if d["article"] == ARTICLE_10)
@@ -493,8 +480,7 @@ def evaluate_admin_review(company, operating_income, corporate_tax, total_sales,
         # evaluate 와 같은 헬퍼를 쓴다. 여기서 식을 따로 쓰면 두 화면의 숫자가 갈린다.
         deemed = _deemed_gift(size, after, adjusted_ratio,
                               ds.hold.get(company, {}).get(shareholder, 0),
-                              _normal_ratio(size, teuk, ds), ds,
-                              holdings_sum=holdings_sum)
+                              _normal_ratio(size, teuk, ds), ds)
         shareholder_details.append({
             # 지배주주 실명은 내보내지 않는다. 화면은 코드(A/B/C/D/C1/C11/C12)로만
             # 표시하므로 응답에 실어봐야 개발자도구에 노출될 뿐이다.

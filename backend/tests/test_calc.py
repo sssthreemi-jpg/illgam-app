@@ -6,18 +6,25 @@ from backend.calc import evaluate, company_list, OTHER_COMPANY
 # 엑셀 검증본 골든 넘버와 실제 소유구조에 의존한다. 합성 fixture 로는 재현할 수 없으므로
 # 실제 데이터가 없는 환경(CI)에서는 conftest 가 통째로 건너뛴다.
 # 데이터에 의존하지 않는 로직 검증은 test_calc_synthetic.py 가 담당한다.
+#
+# 세액 골든 넘버는 요건③(한계보유비율) 도입으로 한 번 갱신됐다. 검증본 엑셀은 요건③ 을
+# 반영하지 않아 한계보유비율 이하 주주에게도 세액을 매겼고, 그 값이 그대로 여기 박혀
+# 있었다. 아래 값은 요건③ 을 적용한 결과이며, 세무 담당자가 과세대상 주주를 직접 확인해
+# 확정했다(이지메디컴 C·C11, 대웅펫 C, 대웅바이오 A·C·D).
+#   이지메디컴  1,559,826,490 -> 1,524,581,260  (D 1.12%, C1 1.11%, C12 1.57% 제외)
+#   대웅펫         22,634,130 ->    18,887,560  (A 6.55%, D 5.32%, C1·C11·C12 제외)
 pytestmark = pytest.mark.realdata
 
 def test_ezmedicom():
     r = evaluate("이지메디컴", 10_000_000_000, 0, 10_000_000_000,
                  {"대웅제약": 9_000_000_000})
-    assert r["gift_tax_total"] == 1_559_826_490, r["gift_tax_total"]
+    assert r["gift_tax_total"] == 1_524_581_260, r["gift_tax_total"]
     assert r["taxable"] is True
 
 def test_daewoongpet():
     r = evaluate("대웅펫", 5_000_000_000, 0, 8_000_000_000,
                  {"대웅제약": 5_000_000_000})
-    assert r["gift_tax_total"] == 22_634_130, r["gift_tax_total"]
+    assert r["gift_tax_total"] == 18_887_560, r["gift_tax_total"]
 
 def test_general_company_over_100_billion_uses_20_percent_ratio():
     r = evaluate("대웅바이오", 1_000_000, 0, 200_000_000_000,
@@ -171,7 +178,7 @@ def test_no_registered_section18_keeps_golden_numbers():
     assert calc.SECTION18 == {}, "기본 데이터 파일에는 등재된 관계가 없어야 한다"
     r = evaluate("이지메디컴", 10_000_000_000, 0, 10_000_000_000,
                  {"대웅제약": 9_000_000_000})
-    assert r["gift_tax_total"] == 1_559_826_490
+    assert r["gift_tax_total"] == 1_524_581_260
 
 
 if __name__ == "__main__":
