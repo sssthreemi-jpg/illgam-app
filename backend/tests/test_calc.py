@@ -13,18 +13,24 @@ from backend.calc import evaluate, company_list, OTHER_COMPANY
 # 확정했다(이지메디컴 C·C11, 대웅펫 C, 대웅바이오 A·C·D).
 #   이지메디컴  1,559,826,490 -> 1,524,581,260  (D 1.12%, C1 1.11%, C12 1.57% 제외)
 #   대웅펫         22,634,130 ->    18,887,560  (A 6.55%, D 5.32%, C1·C11·C12 제외)
+#
+# 두 번째 갱신은 절사 위치 변경이다. 산출세액에서 10원 미만을 깎던 것을 원 단위로 두고,
+# 신고세액공제(3%)를 뺀 **납부세액에서** 10원 미만을 깎도록 실무 계산내역에 맞췄다.
+# 그래서 gift_tax_total(산출세액)의 끝자리가 살아난다.
+#   이지메디컴  1,524,581,260 -> 1,524,581,273   납부세액은 1,478,843,910
+#   대웅펫         18,887,560 ->    18,887,566   납부세액은    18,320,940
 pytestmark = pytest.mark.realdata
 
 def test_ezmedicom():
     r = evaluate("이지메디컴", 10_000_000_000, 0, 10_000_000_000,
                  {"대웅제약": 9_000_000_000})
-    assert r["gift_tax_total"] == 1_524_581_260, r["gift_tax_total"]
+    assert r["gift_tax_total"] == 1_524_581_273, r["gift_tax_total"]
     assert r["taxable"] is True
 
 def test_daewoongpet():
     r = evaluate("대웅펫", 5_000_000_000, 0, 8_000_000_000,
                  {"대웅제약": 5_000_000_000})
-    assert r["gift_tax_total"] == 18_887_560, r["gift_tax_total"]
+    assert r["gift_tax_total"] == 18_887_566, r["gift_tax_total"]
 
 def test_general_company_over_100_billion_uses_20_percent_ratio():
     r = evaluate("대웅바이오", 1_000_000, 0, 200_000_000_000,
@@ -179,7 +185,7 @@ def test_no_registered_section18_keeps_golden_numbers():
     assert calc.SECTION18 == {}, "기본 데이터 파일에는 등재된 관계가 없어야 한다"
     r = evaluate("이지메디컴", 10_000_000_000, 0, 10_000_000_000,
                  {"대웅제약": 9_000_000_000})
-    assert r["gift_tax_total"] == 1_524_581_260
+    assert r["gift_tax_total"] == 1_524_581_273
 
 
 if __name__ == "__main__":
@@ -238,3 +244,34 @@ def test_dwbio_2025_exclusion_total_matches_the_worksheet():
     r = _dwbio_2025()
     a = [d for d in r["shareholder_details"] if d["code"] == "A"][0]
     assert a["excluded_sales"] == pytest.approx(66_105_831_055 + 1_713_784_230, abs=1)
+
+
+# 배당소득 공제까지 얹으면 계산내역의 납부세액과 원 단위까지 맞아야 한다.
+DWBIO_2025_DIVIDEND = {"A": 815_251_400, "C": 1_354_031_200, "D": 630_662_000}
+DWBIO_2025_DISTRIBUTABLE = 401_825_672_130
+# 계산내역의 지배주주별 (배당소득 공제, 산출세액, 신고세액공제, 납부세액)
+DWBIO_2025_FINAL = {
+    "A": (8_141_967, 152_093_350, 4_562_800, 147_530_550),
+    "C": (15_615_988, 382_382_817, 11_471_484, 370_911_330),
+    "D": (6_610_693, 112_204_591, 3_366_137, 108_838_450),
+}
+
+
+def _dwbio_2025_full():
+    return calc.evaluate_admin_review(
+        "대웅바이오", 116_207_012_131, 20_999_171_475, 641_338_729_689,
+        DWBIO_2025_SALES, year="2025", article10_exclusions=DWBIO_2025_ARTICLE10,
+        dividend_income=DWBIO_2025_DIVIDEND,
+        distributable_income=DWBIO_2025_DISTRIBUTABLE)
+
+
+def test_dwbio_2025_full_chain_matches_the_worksheet():
+    r = _dwbio_2025_full()
+    got = {d["code"]: d for d in r["shareholder_details"]}
+    for code, (deduction, tax, credit, payable) in DWBIO_2025_FINAL.items():
+        d = got[code]
+        assert d["dividend_deduction"] == pytest.approx(deduction, abs=1), code
+        assert d["gift_tax"] == tax, code
+        assert d["filing_credit"] == credit, code
+        assert d["gift_tax_payable"] == payable, code
+    assert r["gift_tax_payable_total"] == 627_280_330

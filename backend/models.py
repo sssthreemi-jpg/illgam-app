@@ -30,3 +30,7 @@ class EvaluateRequest(BaseModel):
     # 도출되지 않는 값이라 신고서에서 확정한 금액을 그대로 받는다.
     # 수혜법인이 그 거래처에 출자한 관계면 이 값과 무관하게 전액이 ⑩ 이다.
     article10_exclusions: Optional[Dict[str, int]] = None
+    # 배당소득 공제(간접출자 배당 이중과세 조정)용. 지배주주 코드별 배당소득과
+    # 수혜법인의 연도말 배당가능이익. 안 주면 공제 없이 계산한다.
+    dividend_income: Optional[Dict[str, int]] = None
+    distributable_income: int = 0

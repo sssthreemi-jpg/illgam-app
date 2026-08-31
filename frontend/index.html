@@ -317,8 +317,24 @@
               </div>
             </section>
 
+            <section class="input-section" id="dividend-section" style="display:none">
+              <h4 class="input-section-title"><i>3</i>배당소득 공제 <span class="hint">(선택 · 관리자)</span></h4>
+              <p class="hint">간접출자법인(지주회사)에서 이미 배당으로 과세된 몫을 증여의제이익에서 덜어냅니다. 비워 두면 공제 없이 계산합니다.</p>
+              <div class="field">
+                <label for="distributable_income">수혜법인 연도말 배당가능이익 (원)</label>
+                <input id="distributable_income" type="number" min="0" value="0" placeholder="0">
+              </div>
+              <label for="dividend_table">지배주주별 배당소득 (원)</label>
+              <div class="table-scroll">
+                <table id="dividend_table">
+                  <thead><tr><th>지배주주</th><th>배당소득 (원)</th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </section>
+
             <section class="input-section">
-              <h4 class="input-section-title"><i>3</i>세무조정내역</h4>
+              <h4 class="input-section-title"><i>4</i>세무조정내역</h4>
               <label for="tax_table">항목별 금액 입력 <span style="font-weight:400;color:var(--t3);font-size:12px">가산은 양수, 차감은 음수 (예: -3500000)</span></label>
               <div class="table-scroll">
                 <table id="tax_table">
@@ -338,7 +354,7 @@
             </section>
 
             <section class="input-section">
-              <h4 class="input-section-title"><i>4</i>법인세 상당액</h4>
+              <h4 class="input-section-title"><i>5</i>법인세 상당액</h4>
               <div class="basic-grid">
                 <div>
                   <label for="corporate_tax">법인세 상당액 (원)</label>

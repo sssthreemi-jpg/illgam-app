@@ -73,6 +73,31 @@ function getRelatedFromTable(){
   return related
 }
 
+// 지배주주별 배당소득. 관리자에게만 표가 그려지므로 그 외에는 빈 객체가 된다.
+function getDividendFromTable(){
+  const tbody = document.querySelector('#dividend_table tbody')
+  if(!tbody) return {}
+  const out = {}
+  Array.from(tbody.querySelectorAll('tr')).forEach(tr=>{
+    const code = tr.dataset.code || ''
+    const v = Number(tr.querySelector('.dvd')?.value || 0)
+    if(code && v) out[code] = v
+  })
+  return out
+}
+
+// 관리자에게만 배당소득 공제 입력란을 그린다.
+function renderDividendSection(codes){
+  const section = document.getElementById('dividend-section')
+  const tbody = document.querySelector('#dividend_table tbody')
+  if(!section || !tbody) return
+  if(!codes || !codes.length){ section.style.display = 'none'; return }
+  section.style.display = ''
+  tbody.innerHTML = codes.map(code => `
+    <tr data-code="${escapeHtml(code)}"><td>${escapeHtml(code)}</td><td><input class="dvd" type="number" min="0" value="0" placeholder="0"></td></tr>
+  `).join('')
+}
+
 // 제10항 과세제외액. 매출이 0 인 행은 서버가 건너뛰므로 함께 뺀다.
 function getArticle10FromTable(){
   const tbody = document.querySelector('#related_table tbody')
@@ -195,6 +220,7 @@ async function refreshForYear({preserveAmounts = true} = {}){
     return
   }
   myCompany = j
+  renderDividendSection(j && j.shareholder_codes)
   $('mycompany').textContent = j.size ? `${j.company} · ${j.size}` : (j.company || '')
   $('hint').textContent = ''
 
@@ -509,7 +535,9 @@ $('evaluate').onclick = async ()=>{
     const body = {
       company, year: currentYear,
       operating_income, corporate_tax, total_sales, related_sales: related, tax_adjustments,
-      article10_exclusions: getArticle10FromTable()
+      article10_exclusions: getArticle10FromTable(),
+      dividend_income: getDividendFromTable(),
+      distributable_income: Number($('distributable_income')?.value || 0)
     }
     const reviewPath = myCompany && myCompany.company === 'admin' ? '/api/admin/evaluate-review' : '/api/evaluate'
     const r = await post(reviewPath, body)
@@ -620,13 +648,14 @@ function renderReport(r, input){
       <div class="logic-formula"><strong>검토 산식 요약</strong><br>
         특수관계 매출 비율 = 특수관계 매출 합계 ÷ 총매출<br>
         증여의제 금액 = 세후 영업이익 × 조정 비율 × 보유 요건 반영값<br>
-        산출 증여세 = 증여의제 금액에 세율 및 누진공제 적용<br>
+        산출 증여세 = 증여의제 금액(배당소득 공제 후)에 세율 및 누진공제 적용<br>
+        납부 증여세 = 산출 증여세 − 신고세액공제 3% (10원 미만 절사)<br>
         <span class="muted">※ 아래 주주별 상세(실명·지분율)는 관리자 인증에서만 노출됩니다. 일반 사용자 화면과 RAWDATA 화면에는 표시되지 않습니다.</span>
       </div>
       <div class="report-section" style="overflow:auto"><h3>주주별 계산 상세</h3>
-        <table class="report-table detail-table"><thead><tr><th>구분</th><th>지분율</th><th>과세제외매출</th><th>제외 후 특수관계 매출 비율</th><th>세후 영업이익</th><th>증여의제이익</th><th>산출 증여세</th><th>판정</th></tr></thead><tbody>
-          ${(r.shareholder_details || []).map(detail => `<tr><td>${escapeHtml(detail.code)}</td><td class="amount">${(Number(detail.holding_ratio) * 100).toFixed(2)}%</td><td class="amount">${formatNum(detail.excluded_sales)}원</td><td class="amount">${(Number(detail.adjusted_related_ratio) * 100).toFixed(2)}%</td><td class="amount">${formatNum(detail.after_tax_operating_income)}원</td><td class="amount">${formatNum(detail.deemed_gift_income)}원</td><td class="amount">${formatNum(detail.gift_tax)}원</td><td>${detail.taxable ? '<span class="report-status yes">대상</span>' : '<span class="report-status no">비대상</span>'}</td></tr>`).join('')}
-          <tr class="total-row"><th colspan="5">총합</th><td class="amount">${formatNum(r.deemed_gift_total)}원</td><td class="amount">${formatNum(r.gift_tax_total)}원</td><td></td></tr>
+        <table class="report-table detail-table"><thead><tr><th>구분</th><th>지분율</th><th>과세제외매출</th><th>제외 후 특수관계 매출 비율</th><th>세후 영업이익</th><th>증여의제이익</th><th>배당소득 공제</th><th>산출 증여세</th><th>신고세액공제</th><th>납부 증여세</th><th>판정</th></tr></thead><tbody>
+          ${(r.shareholder_details || []).map(detail => `<tr><td>${escapeHtml(detail.code)}</td><td class="amount">${(Number(detail.holding_ratio) * 100).toFixed(2)}%</td><td class="amount">${formatNum(detail.excluded_sales)}원</td><td class="amount">${(Number(detail.adjusted_related_ratio) * 100).toFixed(2)}%</td><td class="amount">${formatNum(detail.after_tax_operating_income)}원</td><td class="amount">${formatNum(detail.deemed_gift_income)}원</td><td class="amount">${formatNum(detail.dividend_deduction || 0)}원</td><td class="amount">${formatNum(detail.gift_tax)}원</td><td class="amount">${formatNum(detail.filing_credit || 0)}원</td><td class="amount"><strong>${formatNum(detail.gift_tax_payable || 0)}원</strong></td><td>${detail.taxable ? '<span class="report-status yes">대상</span>' : '<span class="report-status no">비대상</span>'}</td></tr>`).join('')}
+          <tr class="total-row"><th colspan="5">총합</th><td class="amount">${formatNum(r.deemed_gift_total)}원</td><td class="amount">${formatNum(r.dividend_deduction_total || 0)}원</td><td class="amount">${formatNum(r.gift_tax_total)}원</td><td class="amount">${formatNum(r.filing_credit_total || 0)}원</td><td class="amount"><strong>${formatNum(r.gift_tax_payable_total || 0)}원</strong></td><td></td></tr>
         </tbody></table>
         <div class="hint">관리자 인증에서만 표시되는 상세값입니다.</div>
       </div>
@@ -655,7 +684,10 @@ function renderReport(r, input){
         <tr><th>과세제외매출(계산 범위)²</th><td class="amount">${formatNum(r.excluded_sales_min)}원 ~ ${formatNum(r.excluded_sales_max)}원</td></tr>
         <tr><th>제외 후 특수관계 매출 비율</th><td class="amount">${(r.adjusted_related_ratio_min * 100).toFixed(1)}% ~ ${(r.adjusted_related_ratio_max * 100).toFixed(1)}%</td></tr>` : ''}
         <tr><th>증여의제 금액</th><td class="amount">${formatNum(r.deemed_gift_total)}원</td></tr>
-        <tr><th>산출 증여세</th><td class="amount"><strong>${formatNum(r.gift_tax_total)}원</strong></td></tr>
+        ${r.dividend_deduction_total ? `<tr><th>배당소득 공제</th><td class="amount">-${formatNum(r.dividend_deduction_total)}원</td></tr>` : ''}
+        <tr><th>산출 증여세</th><td class="amount">${formatNum(r.gift_tax_total)}원</td></tr>
+        <tr><th>신고세액공제 (3%)</th><td class="amount">-${formatNum(r.filing_credit_total || 0)}원</td></tr>
+        <tr><th>납부 증여세</th><td class="amount"><strong>${formatNum(r.gift_tax_payable_total || 0)}원</strong></td></tr>
       </tbody></table>
       ${input.isAdmin ? '<div class="hint">¹ 제10항 기준으로 공통 제외된 매출입니다. ² 서버의 민감한 지분 계산을 집계한 범위이며 원본 비율은 표시하지 않습니다.</div>' : ''}
     </section>

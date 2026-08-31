@@ -133,7 +133,11 @@ def my_company(year: str = None, current: User = Depends(get_current_user)):
     # 기업 구분은 연도마다 달라질 수 있다(중소 → 중견 승격 등).
     ds = _dataset_or_400(year)
     size = ds.sizes.get(current.company, "알수없음")
-    return {"company": current.company, "size": size, "year": ds.year}
+    out = {"company": current.company, "size": size, "year": ds.year}
+    if current.is_admin:
+        # 배당소득 입력란을 그리려면 코드 목록이 필요하다. 실명은 내보내지 않는다.
+        out["shareholder_codes"] = list(ds.codes)
+    return out
 
 
 @app.post("/api/evaluate")
@@ -149,7 +153,9 @@ def api_evaluate(req: EvaluateRequest, current: User = Depends(get_current_user)
     res = evaluate(req.company, req.operating_income, req.corporate_tax,
                    req.total_sales, req.related_sales,
                    tax_adjustments=req.tax_adjustments, year=ds.year,
-                   article10_exclusions=req.article10_exclusions)
+                   article10_exclusions=req.article10_exclusions,
+                   dividend_income=req.dividend_income,
+                   distributable_income=req.distributable_income)
     # calc.evaluate already returns only allowed aggregate fields
     return res
 
@@ -165,7 +171,9 @@ def admin_evaluate_review(req: EvaluateRequest, current: User = Depends(get_curr
     return evaluate_admin_review(req.company, req.operating_income, req.corporate_tax,
                                  req.total_sales, req.related_sales,
                                  tax_adjustments=req.tax_adjustments, year=ds.year,
-                                 article10_exclusions=req.article10_exclusions)
+                                 article10_exclusions=req.article10_exclusions,
+                                 dividend_income=req.dividend_income,
+                                 distributable_income=req.distributable_income)
 
 
 @app.get("/api/admin/summary")

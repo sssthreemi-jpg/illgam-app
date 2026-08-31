@@ -31,6 +31,9 @@ HOLDING_COMPANY_FILE = "holding_company.json"
 GENERAL_RELATED_SALES_THRESHOLD = 100_000_000_000
 GENERAL_HIGH_RELATED_RATIO = 0.2
 
+# 신고세액공제율 (상증법 §69②). 산출세액의 3% 를 빼고 납부한다.
+FILING_CREDIT_RATE = 0.03
+
 # 과세요건 ③ 의 한계보유비율. params.json 의 "한계보유비율" 이 정본이고, 이 값은
 # 키가 없는 예전 스냅샷(배포 시크릿의 tar 등)을 위한 폴백이다. 법정 비율이라
 # 연도별로 달라지는 값이 아니어서 폴백을 둬도 조용히 틀릴 여지가 없다.
@@ -121,6 +124,12 @@ class Dataset:
         self.holding_company = hc.get("지주회사")
         self.holding_ratio = {k: float(v) for k, v in (hc.get("지분율") or {}).items()
                               if not k.startswith("_")}
+        # 배당소득 공제(간접출자 배당 이중과세 조정)용.
+        # 직접보유비율은 지주회사에 대한 **직접** 지분율이다(shareholder_holdings 의 합계와 다르다).
+        self.holding_direct = {k: float(v)
+                               for k, v in (hc.get("지배주주직접보유비율") or {}).items()
+                               if not k.startswith("_")}
+        self.holding_distributable = float(hc.get("배당가능이익") or 0)
 
         self.codes = [s["code"] for s in self.params["shareholders"]]  # A,B,C,D,C1,C11,C12
         self.normal = self.params["정상거래비율"]
@@ -407,6 +416,12 @@ def _exclusions(company, related_sales, ds, article10=None):
 
 
 def _gift_tax(base, ds=None):
+    """산출세액(신고세액공제 전). **원 단위 절사**다.
+
+    종전에는 여기서 10원 미만을 절사했는데, 실무 계산내역은 산출세액을 원 단위로 두고
+    신고세액공제를 뺀 **납부세액에서** 10원 미만을 절사한다. 먼저 10원으로 깎으면
+    공제액이 달라져 납부세액이 10원씩 어긋난다.
+    """
     ds = ds or dataset()
     if base < ds.exempt:
         return 0
@@ -414,8 +429,38 @@ def _gift_tax(base, ds=None):
     for low, r, d in ds.brackets:
         if base >= low:
             rate, deduct = r, d
-    tax = base * rate - deduct
-    return int(math.floor(tax / 10) * 10)   # 10원 미만 절사
+    return int(math.floor(base * rate - deduct))
+
+
+def _filing_credit(tax):
+    """신고세액공제 (상증법 §69②). 산출세액의 3%, 원 단위 절사."""
+    return int(math.floor(tax * FILING_CREDIT_RATE))
+
+
+def _payable(tax, credit):
+    """납부할 증여세. 10원 미만 절사는 여기서 한 번만 한다."""
+    return int(math.floor(max(tax - credit, 0) / 10) * 10)
+
+
+def _dividend_deduction(company, code, deemed, distributable_income, dividend_income, ds):
+    """간접출자 배당 이중과세 조정액 (증여의제이익에서 뺀다).
+
+        공제액 = 배당소득 × 증여의제이익 ÷ ((수혜법인 배당가능이익 × 간접출자법인의
+                 수혜법인 지분율 + 간접출자법인 배당가능이익) × 지배주주의 간접출자법인 직접보유비율)
+
+    지배주주가 간접출자법인(지주회사)에서 이미 배당으로 과세된 몫을 덜어내는 계산이다.
+    입력(배당소득·수혜법인 배당가능이익)이 없거나 지주회사 데이터가 없으면 0 이다.
+    """
+    dividend = float((dividend_income or {}).get(code, 0) or 0)
+    if dividend <= 0 or deemed <= 0:
+        return 0.0
+    company_ratio = ds.holding_ratio.get(company, 0.0)
+    direct = ds.holding_direct.get(code, 0.0)
+    denom = ((float(distributable_income or 0) * company_ratio)
+             + ds.holding_distributable) * direct
+    if denom <= 0:
+        return 0.0
+    return dividend * deemed / denom
 
 
 def _after_tax_base(operating_income, corporate_tax, tax_adjustments):
@@ -428,7 +473,8 @@ def _after_tax_base(operating_income, corporate_tax, tax_adjustments):
 
 def evaluate(company, operating_income, corporate_tax, total_sales,
              related_sales=None, tax_adjustments=None, year=None,
-             article10_exclusions=None):
+             article10_exclusions=None, dividend_income=None,
+             distributable_income=0):
     """집계 결과만 반환 (지분율·지배주주별 내역 미반환).
 
     간접출자 여부는 인자로 받지 않는다. 서버가 §18 등재 데이터로 판정한다.
@@ -452,15 +498,26 @@ def evaluate(company, operating_income, corporate_tax, total_sales,
     over_threshold = gate_ratio > normal_ratio
     myhold = ds.hold.get(company, {})
     deemed_total = 0
+    deduction_total = 0
     tax_total = 0
+    credit_total = 0
+    payable_total = 0
     for k in ds.codes:
         excl = excluded_by_code[k]
         ratio = 0 if (total_sales - excl) == 0 else (teuk - excl) / (total_sales - excl)
         after = 0 if total_sales == 0 else after_tax_base * (1 - excl / total_sales)
         deemed = _deemed_gift(size, after, ratio, myhold.get(k, 0), normal_ratio, ds,
                               gate_ratio=gate_ratio)
+        deduction = _dividend_deduction(company, k, deemed, distributable_income,
+                                        dividend_income, ds)
+        base = max(deemed - deduction, 0)
+        tax = _gift_tax(base, ds)
+        credit = _filing_credit(tax)
         deemed_total += deemed
-        tax_total += _gift_tax(deemed, ds)
+        deduction_total += deduction
+        tax_total += tax
+        credit_total += credit
+        payable_total += _payable(tax, credit)
 
     return {
         "company": company,
@@ -477,7 +534,12 @@ def evaluate(company, operating_income, corporate_tax, total_sales,
         "taxation_ratio": gate_ratio,
         "normal_ratio": normal_ratio,
         "deemed_gift_total": round(deemed_total),
+        # 배당소득 공제(간접출자 배당 이중과세 조정)와 신고세액공제(3%).
+        # gift_tax_total 은 종전대로 **산출세액**이고, 실제 납부액은 gift_tax_payable_total 이다.
+        "dividend_deduction_total": round(deduction_total),
         "gift_tax_total": tax_total,
+        "filing_credit_total": credit_total,
+        "gift_tax_payable_total": payable_total,
         "reason": _reason(size, taxable_sales, total_sales, normal_ratio, tax_total,
                           over_threshold),
         # 거래처별 과세제외 사유·조문. 적용률·금액은 ⑩·§18(100%) 건만 채워지고
@@ -530,7 +592,8 @@ def _deemed_gift(size, after, ratio, holding, normal_ratio, ds=None, gate_ratio=
 
 def evaluate_admin_review(company, operating_income, corporate_tax, total_sales,
                           related_sales=None, tax_adjustments=None, year=None,
-                          article10_exclusions=None):
+                          article10_exclusions=None, dividend_income=None,
+                          distributable_income=0):
     """관리자 검토 화면 전용 집계. 주주별 적용률(=지분율)까지 노출한다.
 
     과세제외 계산은 evaluate 와 같은 _exclusions 를 쓴다(두 경로가 어긋나지 않도록).
@@ -538,7 +601,9 @@ def evaluate_admin_review(company, operating_income, corporate_tax, total_sales,
     ds = dataset(year)
     result = evaluate(company, operating_income, corporate_tax, total_sales,
                       related_sales, tax_adjustments, year=year,
-                      article10_exclusions=article10_exclusions)
+                      article10_exclusions=article10_exclusions,
+                      dividend_income=dividend_income,
+                      distributable_income=distributable_income)
     related_sales = related_sales or {}
     after_tax_base = _after_tax_base(operating_income, corporate_tax, tax_adjustments)
     teuk, excluded_by_code, details, a10_total = _exclusions(
@@ -564,6 +629,11 @@ def evaluate_admin_review(company, operating_income, corporate_tax, total_sales,
                               ds.hold.get(company, {}).get(shareholder, 0),
                               result["normal_ratio"], ds,
                               gate_ratio=result["taxation_ratio"])
+        deduction = _dividend_deduction(company, shareholder, deemed, distributable_income,
+                                        dividend_income, ds)
+        taxable_base = max(deemed - deduction, 0)
+        tax = _gift_tax(taxable_base, ds)
+        credit = _filing_credit(tax)
         shareholder_details.append({
             # 지배주주 실명은 내보내지 않는다. 화면은 코드(A/B/C/D/C1/C11/C12)로만
             # 표시하므로 응답에 실어봐야 개발자도구에 노출될 뿐이다.
@@ -574,8 +644,12 @@ def evaluate_admin_review(company, operating_income, corporate_tax, total_sales,
             "adjusted_related_ratio": adjusted_ratio,
             "after_tax_operating_income": after,
             "deemed_gift_income": deemed,
-            "gift_tax": _gift_tax(deemed, ds),
-            "taxable": _gift_tax(deemed, ds) > 0,
+            "dividend_deduction": deduction,
+            "taxable_base": taxable_base,
+            "gift_tax": tax,
+            "filing_credit": credit,
+            "gift_tax_payable": _payable(tax, credit),
+            "taxable": tax > 0,
         })
 
     result.update({

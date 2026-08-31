@@ -28,7 +28,8 @@ COUNTERPARTY_HC = "지주자회사"   # ⑭2호 (지주회사 지분율 70% > �
 PUBLIC_FIELDS = {
     "company", "size", "taxable", "total_sales", "related_sales_total",
     "related_sales_ratio", "article10_total", "taxation_ratio",
-    "normal_ratio", "deemed_gift_total", "gift_tax_total",
+    "normal_ratio", "deemed_gift_total", "dividend_deduction_total",
+    "gift_tax_total", "filing_credit_total", "gift_tax_payable_total",
     # 계산에 쓴 연도 이름표와 기준시점 문구. 지분 정보가 아니다.
     "year", "data_as_of",
     "reason", "exclusion_details",
@@ -387,7 +388,8 @@ def test_admin_payload_keeps_ranges_totals_and_breakdown(fixture_data):
 
 SHAREHOLDER_DETAIL_FIELDS = {
     "code", "holding_ratio", "excluded_sales", "adjusted_related_ratio",
-    "after_tax_operating_income", "deemed_gift_income", "gift_tax", "taxable",
+    "after_tax_operating_income", "deemed_gift_income", "dividend_deduction",
+    "taxable_base", "gift_tax", "filing_credit", "gift_tax_payable", "taxable",
 }
 
 
@@ -547,3 +549,67 @@ def test_article10_input_lowers_the_taxation_ratio(fixture_data):
     assert r["article10_total"] == 100_000_000
     assert r["taxation_ratio"] == pytest.approx(0.3)
     assert r["gift_tax_total"] == 0, "문턱은 '초과'라 같으면 과세하지 않는다"
+
+
+# --- 배당소득 공제와 신고세액공제 -------------------------------------------------
+
+def _taxed_case(fixture_data, **kw):
+    """세액이 나오는 기본 시나리오. 여기에 배당 관련 인자만 얹어 비교한다."""
+    return fixture_data.evaluate(SUBJECT, 10_000_000_000, 0, 10_000_000_000,
+                                 {COUNTERPARTY_NONE: 9_000_000_000}, **kw)
+
+
+def test_filing_credit_is_three_percent_of_the_tax(fixture_data):
+    r = _taxed_case(fixture_data)
+    assert r["gift_tax_total"] > 0
+    assert r["filing_credit_total"] == int(r["gift_tax_total"] * 0.03)
+    assert r["gift_tax_payable_total"] == (
+        r["gift_tax_total"] - r["filing_credit_total"]) // 10 * 10
+
+
+def test_payable_rounds_down_to_ten_won_only_at_the_end(fixture_data):
+    """산출세액은 원 단위로 두고 납부세액에서만 10원 미만을 깎는다."""
+    r = _taxed_case(fixture_data)
+    assert r["gift_tax_payable_total"] % 10 == 0
+    assert r["gift_tax_payable_total"] < r["gift_tax_total"]
+
+
+def test_no_dividend_input_means_no_deduction(fixture_data):
+    """배당소득을 안 주면 공제 없이 종전처럼 계산한다."""
+    r = _taxed_case(fixture_data)
+    assert r["dividend_deduction_total"] == 0
+
+
+def test_dividend_deduction_follows_the_worksheet_formula(fixture_data):
+    """공제액 = 배당소득 × 증여의제이익 ÷ ((수혜법인 배당가능이익 × 지주사 지분율 + 지주사 배당가능이익) × 직접보유비율)"""
+    calc = fixture_data
+    plain = _taxed_case(calc)
+    deemed_a = [d for d in calc.evaluate_admin_review(
+        SUBJECT, 10_000_000_000, 0, 10_000_000_000,
+        {COUNTERPARTY_NONE: 9_000_000_000})["shareholder_details"]
+        if d["code"] == "A"][0]["deemed_gift_income"]
+
+    dividend, distributable = 50_000_000, 2_000_000_000
+    # 지주사(지주홀딩스)의 가나전자 지분율 0.9, 지주사 배당가능이익 10억, A 의 직접보유비율 0.1
+    expected = dividend * deemed_a / ((distributable * 0.9 + 1_000_000_000) * 0.1)
+
+    r = calc.evaluate_admin_review(SUBJECT, 10_000_000_000, 0, 10_000_000_000,
+                                   {COUNTERPARTY_NONE: 9_000_000_000},
+                                   dividend_income={"A": dividend},
+                                   distributable_income=distributable)
+    a = [d for d in r["shareholder_details"] if d["code"] == "A"][0]
+    assert a["dividend_deduction"] == pytest.approx(expected)
+    assert a["taxable_base"] == pytest.approx(deemed_a - expected)
+    assert r["gift_tax_total"] < plain["gift_tax_total"], "공제가 붙으면 세액이 준다"
+
+
+def test_dividend_deduction_never_makes_the_base_negative(fixture_data):
+    r = _taxed_case(fixture_data, dividend_income={"A": 10_000_000_000},
+                    distributable_income=1)
+    for d in fixture_data.evaluate_admin_review(
+            SUBJECT, 10_000_000_000, 0, 10_000_000_000,
+            {COUNTERPARTY_NONE: 9_000_000_000},
+            dividend_income={"A": 10_000_000_000},
+            distributable_income=1)["shareholder_details"]:
+        assert d["taxable_base"] >= 0
+    assert r["gift_tax_total"] >= 0
