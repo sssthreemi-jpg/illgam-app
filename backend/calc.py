@@ -454,6 +454,10 @@ def _dividend_deduction(company, code, deemed, distributable_income, dividend_in
     dividend = float((dividend_income or {}).get(code, 0) or 0)
     if dividend <= 0 or deemed <= 0:
         return 0.0
+    if ds.holding_distributable <= 0:
+        # 지주회사 배당가능이익이 없으면 계산하지 않는다. 0 으로 두고 계산하면 분모가
+        # 작아져 공제가 과대계상되고, 그만큼 세액이 조용히 줄어든다.
+        return 0.0
     company_ratio = ds.holding_ratio.get(company, 0.0)
     direct = ds.holding_direct.get(code, 0.0)
     denom = ((float(distributable_income or 0) * company_ratio)

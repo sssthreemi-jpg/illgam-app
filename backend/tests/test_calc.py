@@ -19,6 +19,12 @@ from backend.calc import evaluate, company_list, OTHER_COMPANY
 # 그래서 gift_tax_total(산출세액)의 끝자리가 살아난다.
 #   이지메디컴  1,524,581,260 -> 1,524,581,273   납부세액은 1,478,843,910
 #   대웅펫         18,887,560 ->    18,887,566   납부세액은    18,320,940
+#
+# 세 번째 갱신은 ⑭2호 표(holding_company.json)를 그룹 전체로 채우면서 생겼다. 대웅펫은
+# 대웅이 66.68% 를 가진 자회사라 대웅제약 향 매출에 ⑭2호가 붙는다. 이지메디컴은 대웅
+# 지분이 없어 그대로다. 검증본 엑셀은 ⑭2호를 구현하지 않으므로 이 값은 검증본과 다르다 —
+# 기준은 실무 계산내역(대웅바이오 25.4Q)이다.
+#   대웅펫         18,887,566 ->     6,240,267   납부세액은     6,053,050
 pytestmark = pytest.mark.realdata
 
 def test_ezmedicom():
@@ -30,7 +36,7 @@ def test_ezmedicom():
 def test_daewoongpet():
     r = evaluate("대웅펫", 5_000_000_000, 0, 8_000_000_000,
                  {"대웅제약": 5_000_000_000})
-    assert r["gift_tax_total"] == 18_887_566, r["gift_tax_total"]
+    assert r["gift_tax_total"] == 6_240_267, r["gift_tax_total"]
 
 def test_general_company_over_100_billion_uses_20_percent_ratio():
     r = evaluate("대웅바이오", 1_000_000, 0, 200_000_000_000,
