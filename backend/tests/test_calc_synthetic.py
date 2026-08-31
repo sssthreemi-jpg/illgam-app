@@ -173,6 +173,73 @@ def test_just_over_normal_ratio_is_taxable(fixture_data):
     assert "초과하고" in r["reason"]
 
 
+# --- 한계보유비율 문턱(과세요건 ③) ------------------------------------------
+# 보유비율에도 비율이 두 개다. 한계보유비율(일반 3%, 중견·중소 10%)은 과세대상인지
+# 가르는 문턱이고, 공제보유비율(일반 0%, 중견 5%, 중소 10%)은 계산식에서 빼는 값이다.
+# 정상거래비율에서 한 번 겪은 함정을 보유비율 쪽에서 그대로 반복해, 요건③ 이 통째로
+# 빠져 있었다. 문턱은 개인별이 아니라 **지배주주와 그 친족의 합계**로 본다.
+#
+# 중소는 공제보유비율(10%)이 한계보유비율(10%)과 같아 우연히 맞았고, 일반·중견만
+# 드러난다. 그래서 두 규모를 모두 세워 둔다.
+
+GATE_GENERAL = "요건삼일반"   # 일반, 합계 2% <= 3%
+GATE_MIDSIZE = "요건삼중견"   # 중견, 합계 8% <= 10%
+GATE_ABOVE = "요건삼경계"     # 일반, 합계 4% > 3% (대조군)
+
+
+def test_holdings_sum_at_or_below_limit_is_not_taxable_general(fixture_data):
+    """일반 합계 2% <= 3% → 거래비율을 넘겨도 과세대상이 아니다."""
+    r = fixture_data.evaluate(GATE_GENERAL, 50_000_000_000, 0, 100_000_000_000,
+                              {COUNTERPARTY_NONE: 90_000_000_000})
+    assert r["size"] == "일반"
+    assert r["related_sales_ratio"] == pytest.approx(0.9)   # 요건② 는 충족
+    assert r["gift_tax_total"] == 0
+    assert r["deemed_gift_total"] == 0
+    assert r["taxable"] is False
+
+
+def test_holdings_sum_at_or_below_limit_is_not_taxable_midsize(fixture_data):
+    """중견 합계 8% <= 10% → 개인이 공제보유비율(5%)을 넘어도 과세하지 않는다.
+
+    게이트가 없으면 (8% - 5%) > 0 이라 세액이 생기던 조합이다.
+    """
+    r = fixture_data.evaluate(GATE_MIDSIZE, 50_000_000_000, 0, 100_000_000_000,
+                              {COUNTERPARTY_NONE: 90_000_000_000})
+    assert r["size"] == "중견"
+    assert r["gift_tax_total"] == 0
+    assert r["taxable"] is False
+
+
+def test_holdings_sum_above_limit_stays_taxable(fixture_data):
+    """합계 4% > 3% → 문턱이 과하게 막지 않는다(대조군)."""
+    r = fixture_data.evaluate(GATE_ABOVE, 50_000_000_000, 0, 100_000_000_000,
+                              {COUNTERPARTY_NONE: 90_000_000_000})
+    assert r["taxable"] is True
+    assert r["gift_tax_total"] > 0
+
+
+def test_reason_distinguishes_holding_shortfall_from_ratio_shortfall(fixture_data):
+    """요건② 는 넘고 요건③ 만 미달인 경우 사유가 '보유요건' 을 짚어야 한다."""
+    r = fixture_data.evaluate(GATE_GENERAL, 50_000_000_000, 0, 100_000_000_000,
+                              {COUNTERPARTY_NONE: 90_000_000_000})
+    # '보유요건' 만 보면 과세 문구("보유요건을 충족하여 과세대상")도 통과해 버린다.
+    # 게이트를 지웠을 때 반드시 깨지도록 '미충족/해당없음' 까지 못박는다.
+    assert "보유요건 미충족" in r["reason"], r["reason"]
+    assert "해당없음" in r["reason"], r["reason"]
+    assert "과세대상" not in r["reason"], r["reason"]
+    assert "이하여서" not in r["reason"], r["reason"]   # 거래비율 미달 문구가 아니어야 한다
+
+
+def test_admin_review_applies_the_same_holding_gate(fixture_data):
+    """관리자 화면도 같은 게이트를 탄다 — 두 경로의 숫자가 갈리면 안 된다."""
+    r = fixture_data.evaluate_admin_review(GATE_MIDSIZE, 50_000_000_000, 0,
+                                           100_000_000_000,
+                                           {COUNTERPARTY_NONE: 90_000_000_000})
+    assert r["gift_tax_total"] == 0
+    assert all(d["deemed_gift_income"] == 0 for d in r["shareholder_details"])
+    assert all(d["taxable"] is False for d in r["shareholder_details"])
+
+
 def test_threshold_uses_ratio_after_exclusions(fixture_data):
     """판정 비율은 **과세제외 후** 값이다.
 
