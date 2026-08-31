@@ -77,7 +77,7 @@ def test_template_roundtrip_matches_every_company():
     wb = load_workbook(io.BytesIO(template))
     ws = wb.active
 
-    assert [c.value for c in ws[1]] == ["거래처명", "매출액(원)"]
+    assert [c.value for c in ws[1]] == ["거래처명", "매출액(원)", "제10항 과세제외액(원)"]
     names = [ws.cell(row=i, column=1).value for i in range(2, 2 + len(COMPANIES))]
     assert names == COMPANIES
 
@@ -182,7 +182,7 @@ def test_catch_all_aliases_map_to_other_company(alias):
     result = excel_import.import_related_sales(_xlsx_bytes(rows), "a.xlsx", COMPANIES)
     assert result["unmatched"] == []
     assert result["matched"] == [
-        {"company": "기타법인", "amount": 500000, "sources": [alias.strip()]}
+        {"company": "기타법인", "amount": 500000, "sources": [alias.strip()], "article10": 0}
     ]
 
 
@@ -191,7 +191,8 @@ def test_alias_and_canonical_rows_are_summed():
     rows = [["거래처명", "매출액"], ["기타", 100], ["기타법인", 200], ["기타거래처", 300]]
     result = excel_import.import_related_sales(_xlsx_bytes(rows), "a.xlsx", COMPANIES)
     assert result["matched"] == [
-        {"company": "기타법인", "amount": 600, "sources": ["기타", "기타법인", "기타거래처"]}
+        {"company": "기타법인", "amount": 600,
+         "sources": ["기타", "기타법인", "기타거래처"], "article10": 0}
     ]
 
 
@@ -302,3 +303,45 @@ def test_template_endpoint_requires_auth():
 def test_import_endpoint_requires_auth():
     r = client.post("/api/related-sales/import", files={"file": ("a.csv", b"x", "text/csv")})
     assert r.status_code == 401
+
+
+# --- ⑩ 과세제외액 열 -----------------------------------------------------------
+
+def test_article10_column_is_read_from_the_template():
+    """양식 C열에 채운 ⑩ 과세제외액이 거래처별로 따라 들어온다."""
+    template = excel_import.build_template(COMPANIES)
+    wb = load_workbook(io.BytesIO(template))
+    ws = wb.active
+    for offset in range(len(COMPANIES)):
+        ws.cell(row=2 + offset, column=2, value=(offset + 1) * 100000)
+    ws.cell(row=2, column=3, value=17_000_000)      # 첫 거래처에만 ⑩ 이 있다
+    buf = io.BytesIO(); wb.save(buf)
+
+    result = excel_import.import_related_sales(buf.getvalue(), "filled.xlsx", COMPANIES)
+    got = {m["company"]: m["article10"] for m in result["matched"]}
+    assert got[COMPANIES[0]] == 17_000_000
+    assert all(v == 0 for c, v in got.items() if c != COMPANIES[0])
+    assert result["stats"]["article10_total"] == 17_000_000
+
+
+def test_files_without_an_article10_column_still_import():
+    """ERP 에서 그대로 뽑은 파일에는 ⑩ 열이 없다. 없다고 막지 않고 0 으로 본다."""
+    result = excel_import.import_related_sales(_xlsx_bytes(ERP_ROWS), "erp.xlsx", COMPANIES)
+    assert all(m["article10"] == 0 for m in result["matched"])
+    assert result["stats"]["article10_total"] == 0
+
+
+def test_article10_column_is_not_mistaken_for_the_amount_column():
+    """'과세제외' 머리글은 금액 열 후보이기도 하다. 매출액 열을 뺏기면 안 된다."""
+    rows = [["거래처명", "매출액", "제10항 과세제외액"],
+            ["대웅제약", 1000, 250]]
+    result = excel_import.import_related_sales(_xlsx_bytes(rows), "a.xlsx", COMPANIES)
+    assert result["matched"] == [
+        {"company": "대웅제약", "amount": 1000, "sources": ["대웅제약"], "article10": 250}
+    ]
+
+
+def test_negative_article10_is_clamped_to_zero():
+    rows = [["거래처명", "매출액", "과세제외액"], ["대웅제약", 1000, -50]]
+    result = excel_import.import_related_sales(_xlsx_bytes(rows), "a.xlsx", COMPANIES)
+    assert result["matched"][0]["article10"] == 0

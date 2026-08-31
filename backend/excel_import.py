@@ -30,6 +30,9 @@ SNIFF_ROWS = 60
 # 헤더 후보. 부분일치로 본다('거래처명', '매출처 코드' 등 변형이 많다).
 NAME_HEADERS = ("거래처", "업체", "회사", "법인", "상호", "매출처", "고객", "거래상대")
 AMOUNT_HEADERS = ("매출액", "매출", "금액", "공급가액", "합계", "총액", "amount", "sales")
+# ⑩ 과세제외액 열(선택). 양식에는 늘 있지만 ERP 파일에는 대개 없다 — 없으면 0 으로 본다.
+# `과세제외` 가 들어간 머리글은 금액 열 후보이기도 해서, 금액 열보다 **먼저** 집어낸다.
+ARTICLE10_HEADERS = ("과세제외", "제10항", "10항", "⑩")
 # 이름 열로 쓰면 안 되는 것들. '거래처코드'가 '거래처'에 걸리는 것을 막는다.
 NAME_HEADER_BLOCKERS = ("코드", "번호", "code", "no.", "사업자")
 
@@ -243,18 +246,34 @@ def _col_label(index: int) -> str:
     return label
 
 
-def extract_entries(rows: List[list]) -> Tuple[List[Tuple[str, int]], List[str]]:
-    """행 목록에서 (거래처명, 금액) 을 뽑는다. 경고 문구도 함께 돌려준다."""
+def _find_article10_col(cells, name_col, amount_col) -> Optional[int]:
+    """머리글 행에서 ⑩ 과세제외액 열을 찾는다. 없으면 None."""
+    for i, cell in enumerate(cells):
+        if i in (name_col, amount_col) or cell is None:
+            continue
+        text = str(cell).strip().lower()
+        if text and any(h in text for h in ARTICLE10_HEADERS):
+            return i
+    return None
+
+
+def extract_entries(rows: List[list]) -> Tuple[List[Tuple[str, int, int]], List[str]]:
+    """행 목록에서 (거래처명, 매출액, ⑩ 과세제외액) 을 뽑는다. 경고 문구도 함께 돌려준다.
+
+    ⑩ 열은 선택이다. 머리글로 찾지 못하면 모두 0 으로 둔다 — ERP 에서 그대로 뽑은
+    파일에는 없는 것이 정상이고, 없다고 해서 업로드를 막을 이유가 없다.
+    """
     warnings: List[str] = []
     if not rows:
         raise ValueError("파일에 읽을 내용이 없습니다.")
 
-    name_col = amount_col = None
+    name_col = amount_col = article10_col = None
     start_row = 0
     for i, cells in enumerate(rows[:HEADER_SCAN_ROWS]):
         score, n_col, a_col = _header_score(cells)
         if score == 2:
             name_col, amount_col, start_row = n_col, a_col, i + 1
+            article10_col = _find_article10_col(cells, n_col, a_col)
             break
 
     if name_col is None or amount_col is None:
@@ -270,7 +289,7 @@ def extract_entries(rows: List[list]) -> Tuple[List[Tuple[str, int]], List[str]]
             f"{_col_label(amount_col)}열을 매출액으로 읽었습니다. 결과를 확인해 주세요."
         )
 
-    entries: List[Tuple[str, int]] = []
+    entries: List[Tuple[str, int, int]] = []
     skipped_no_amount = 0
     data_rows = rows[start_row:]
     if len(data_rows) > MAX_DATA_ROWS:
@@ -291,7 +310,10 @@ def extract_entries(rows: List[list]) -> Tuple[List[Tuple[str, int]], List[str]]
         if amount is None:
             skipped_no_amount += 1
             continue
-        entries.append((name, amount))
+        article10 = 0
+        if article10_col is not None and article10_col < len(cells):
+            article10 = parse_amount(cells[article10_col]) or 0
+        entries.append((name, amount, max(article10, 0)))
 
     if not entries:
         raise ValueError("거래처와 금액이 함께 있는 행을 찾지 못했습니다. 파일 내용을 확인해 주세요.")
@@ -300,7 +322,7 @@ def extract_entries(rows: List[list]) -> Tuple[List[Tuple[str, int]], List[str]]
     return entries, warnings
 
 
-def match_entries(entries: List[Tuple[str, int]], companies: List[str]) -> dict:
+def match_entries(entries: List[Tuple[str, int, int]], companies: List[str]) -> dict:
     """뽑아낸 (이름, 금액) 을 서버 법인 목록에 맞춘다.
 
     같은 법인이 여러 줄에 나오면 합산한다(지점·월별로 쪼개진 파일이 흔하다).
@@ -319,18 +341,20 @@ def match_entries(entries: List[Tuple[str, int]], companies: List[str]) -> dict:
             lookup.setdefault(normalize_name(alias), target)
 
     matched: Dict[str, int] = {}
+    matched_article10: Dict[str, int] = {}
     matched_sources: Dict[str, List[str]] = {}
     unmatched: Dict[str, int] = {}
     unmatched_display: Dict[str, str] = {}
     negatives: List[str] = []
 
-    for name, amount in entries:
+    for name, amount, article10 in entries:
         if amount < 0:
             negatives.append(name)
         key = normalize_name(name)
         company = lookup.get(key)
         if company:
             matched[company] = matched.get(company, 0) + amount
+            matched_article10[company] = matched_article10.get(company, 0) + article10
             sources = matched_sources.setdefault(company, [])
             if name not in sources:
                 sources.append(name)
@@ -346,7 +370,8 @@ def match_entries(entries: List[Tuple[str, int]], companies: List[str]) -> dict:
 
     return {
         "matched": [
-            {"company": c, "amount": matched[c], "sources": matched_sources[c]}
+            {"company": c, "amount": matched[c], "sources": matched_sources[c],
+             "article10": matched_article10.get(c, 0)}
             for c in sorted(matched, key=lambda x: -matched[x])
         ],
         "unmatched": [
@@ -369,12 +394,13 @@ def import_related_sales(content: bytes, filename: str, companies: List[str]) ->
         "unmatched_count": len(result["unmatched"]),
         "matched_total": sum(m["amount"] for m in result["matched"]),
         "unmatched_total": sum(u["amount"] for u in result["unmatched"]),
+        "article10_total": sum(m["article10"] for m in result["matched"]),
     }
     return result
 
 
 def build_template(companies: List[str]) -> bytes:
-    """거래처명이 채워진 빈 양식. 사용자는 금액만 채워 다시 올린다."""
+    """거래처명이 채워진 빈 양식. 사용자는 금액과 (해당되면) ⑩ 과세제외액을 채워 올린다."""
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
 
@@ -382,7 +408,7 @@ def build_template(companies: List[str]) -> bytes:
     ws = wb.active
     ws.title = "특수관계자 세부매출"
 
-    ws.append(["거래처명", "매출액(원)"])
+    ws.append(["거래처명", "매출액(원)", "제10항 과세제외액(원)"])
     header_fill = PatternFill("solid", fgColor="EAF1FA")
     for cell in ws[1]:
         cell.fill = header_fill
@@ -394,7 +420,8 @@ def build_template(companies: List[str]) -> bytes:
 
     ws.column_dimensions["A"].width = 28
     ws.column_dimensions["B"].width = 18
-    for row in ws.iter_rows(min_row=2, min_col=2, max_col=2):
+    ws.column_dimensions["C"].width = 22
+    for row in ws.iter_rows(min_row=2, min_col=2, max_col=3):
         for cell in row:
             cell.number_format = "#,##0"
 
@@ -403,6 +430,9 @@ def build_template(companies: List[str]) -> bytes:
     note = ws.cell(row=note_row, column=1,
                    value="※ B열 금액만 채워서 그대로 올려주세요. 거래처명(A열)은 수정하지 마세요.")
     note.font = Font(color="64748B", size=10)
+    note2 = ws.cell(row=note_row + 1, column=1,
+                    value="※ C열(제10항 과세제외액)은 해당하는 거래처만 채우고, 없으면 비워 두세요.")
+    note2.font = Font(color="64748B", size=10)
 
     buf = io.BytesIO()
     wb.save(buf)

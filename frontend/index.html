@@ -308,9 +308,10 @@
               <div id="import-report" class="import-report" style="display:none"></div>
 
               <label for="related_table">법인별 매출액 입력</label>
+              <p class="hint">제10항 과세제외액은 해당하는 거래처만 채우고, 없으면 0 으로 두세요. 과세요건 판정 비율에서 먼저 빠지는 금액입니다.</p>
               <div class="table-scroll">
                 <table id="related_table">
-                  <thead><tr><th>거래처명</th><th>매출액 (원)</th></tr></thead>
+                  <thead><tr><th>거래처명</th><th>매출액 (원)</th><th>제10항 과세제외액 (원)</th></tr></thead>
                   <tbody></tbody>
                 </table>
               </div>
@@ -365,6 +366,7 @@
             <li><strong>영업이익</strong> — 세무조정 <em>전</em> 금액입니다. 조정액은 3번에 따로 입력하세요.</li>
             <li><strong>총매출</strong> — 해당 사업연도 전체 매출액</li>
             <li><strong>특수관계자 세부매출</strong> — 거래처별 매출을 표에 입력합니다. 거래가 없으면 0으로 두세요. 거래처가 많으면 <strong>엑셀 업로드</strong>로 한 번에 채울 수 있습니다.</li>
+            <li><strong>제10항 과세제외액</strong> — 수출목적 매출 등 신고서에서 확정한 금액입니다. 이 금액은 과세요건 판정 비율에서 먼저 빠지고, 남은 금액에 ⑭ 과세제외가 적용됩니다. 수혜법인이 그 거래처에 출자한 관계면 입력과 무관하게 전액이 제외됩니다.</li>
             <li><strong>세무조정내역</strong> — 가산은 양수, 차감은 음수 (예: -3500000)</li>
             <li><strong>법인세 상당액</strong> — 세후영업이익에서 차감됩니다.</li>
           </ul>

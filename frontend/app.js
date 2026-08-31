@@ -73,6 +73,20 @@ function getRelatedFromTable(){
   return related
 }
 
+// 제10항 과세제외액. 매출이 0 인 행은 서버가 건너뛰므로 함께 뺀다.
+function getArticle10FromTable(){
+  const tbody = document.querySelector('#related_table tbody')
+  if(!tbody) return {}
+  const out = {}
+  Array.from(tbody.querySelectorAll('tr')).forEach(tr=>{
+    const name = tr.dataset.company || ''
+    const amt = Number(tr.querySelector('.ramt')?.value || 0)
+    const ex = Number(tr.querySelector('.rex')?.value || 0)
+    if(name && amt && ex) out[name] = ex
+  })
+  return out
+}
+
 function getTaxFromTable(){
   const tbody = document.querySelector('#tax_table tbody')
   if(!tbody) return {}
@@ -248,7 +262,7 @@ function renderRelatedCompanies(companies){
   const tbody = document.querySelector('#related_table tbody')
   if(!tbody) return
   tbody.innerHTML = companies.map(name => `
-    <tr data-company="${escapeHtml(name)}"><td>${escapeHtml(name)}</td><td><input class="ramt" type="number" min="0" value="0" placeholder="0"></td></tr>
+    <tr data-company="${escapeHtml(name)}"><td>${escapeHtml(name)}</td><td><input class="ramt" type="number" min="0" value="0" placeholder="0"></td><td><input class="rex" type="number" min="0" value="0" placeholder="0"></td></tr>
   `).join('')
 }
 
@@ -263,29 +277,41 @@ function snapshotRelated(){
   const snap = {}
   document.querySelectorAll('#related_table tbody tr').forEach(tr=>{
     const input = tr.querySelector('.ramt')
-    snap[tr.dataset.company || ''] = input ? input.value : '0'
+    const ex = tr.querySelector('.rex')
+    snap[tr.dataset.company || ''] = {amount: input ? input.value : '0', article10: ex ? ex.value : '0'}
   })
   return snap
 }
 
+// 값은 숫자(매출액만) 또는 {amount, article10} 둘 다 받는다. 스냅샷 되돌리기가 후자를 쓴다.
 function applyRelatedAmounts(amounts, {reset = false} = {}){
   document.querySelectorAll('#related_table tbody tr').forEach(tr=>{
     const name = tr.dataset.company || ''
     const input = tr.querySelector('.ramt')
+    const ex = tr.querySelector('.rex')
     if(!input) return
-    if(reset) input.value = 0
-    if(Object.prototype.hasOwnProperty.call(amounts, name)) input.value = amounts[name]
+    if(reset){ input.value = 0; if(ex) ex.value = 0 }
+    if(!Object.prototype.hasOwnProperty.call(amounts, name)) return
+    const v = amounts[name]
+    if(v !== null && typeof v === 'object'){
+      input.value = v.amount ?? 0
+      if(ex) ex.value = v.article10 ?? 0
+    } else {
+      input.value = v
+    }
   })
 }
 
 // 법인명을 선택자에 끼워 넣지 않고 행을 훑어 비교한다. 이름에 따옴표·공백이 있어도 안전하고,
 // 표를 그릴 때 쓴 dataset 값과 정확히 같은 문자열로 맞춰볼 수 있다.
-function addRelatedAmount(company, amount){
+function addRelatedAmount(company, amount, article10){
   const rows = Array.from(document.querySelectorAll('#related_table tbody tr'))
   const tr = rows.find(row => (row.dataset.company || '') === company)
   const input = tr && tr.querySelector('.ramt')
   if(!input) return false
   input.value = (Number(input.value) || 0) + amount
+  const ex = tr.querySelector('.rex')
+  if(ex && article10) ex.value = (Number(ex.value) || 0) + article10
   return true
 }
 
@@ -333,6 +359,10 @@ function renderImportReport(result){
 
   // 파일의 이름과 서버 법인명이 다른 건은 접어서 보여준다('기타' → '기타법인' 처럼
   // 서버가 이어준 것을 사용자가 확인할 수 있어야 한다).
+  const a10Total = (result.stats && result.stats.article10_total) || 0
+  const a10Block = a10Total
+    ? `<div class="hint" style="margin-top:4px">제10항 과세제외액 <strong>${formatNum(a10Total)}원</strong>도 함께 넣었습니다.</div>`
+    : ''
   const renamed = (result.matched || [])
     .filter(m => (m.sources || []).some(s => s !== m.company))
   const renamedBlock = renamed.length ? `
@@ -356,6 +386,7 @@ function renderImportReport(result){
     <h5>엑셀 반영 완료</h5>
     <div>거래처 <strong>${stats.matched_count || 0}건</strong>을 표에 넣었습니다. 합계 <strong>${formatNum(stats.matched_total || 0)}원</strong>.</div>
     <div class="hint" style="margin-top:4px">표 전체를 파일 내용으로 바꿨습니다. 파일에 없던 거래처는 0 입니다.</div>
+    ${a10Block}
     ${warnings}
     ${renamedBlock}
     ${unmatchedBlock}
@@ -415,7 +446,7 @@ document.getElementById('excel-upload-input')?.addEventListener('change', async 
     relatedSnapshot = snapshotRelated()
     lastImport = data
     const amounts = {}
-    ;(data.matched || []).forEach(m => { amounts[m.company] = m.amount })
+    ;(data.matched || []).forEach(m => { amounts[m.company] = {amount: m.amount, article10: m.article10 || 0} })
     applyRelatedAmounts(amounts, {reset: true})
     renderImportReport(data)
     setImportStatus(`${file.name} 반영됨`)
@@ -477,7 +508,8 @@ $('evaluate').onclick = async ()=>{
 
     const body = {
       company, year: currentYear,
-      operating_income, corporate_tax, total_sales, related_sales: related, tax_adjustments
+      operating_income, corporate_tax, total_sales, related_sales: related, tax_adjustments,
+      article10_exclusions: getArticle10FromTable()
     }
     const reviewPath = myCompany && myCompany.company === 'admin' ? '/api/admin/evaluate-review' : '/api/evaluate'
     const r = await post(reviewPath, body)
