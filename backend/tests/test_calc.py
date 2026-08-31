@@ -184,3 +184,57 @@ def test_no_registered_section18_keeps_golden_numbers():
 
 if __name__ == "__main__":
     test_ezmedicom(); test_daewoongpet(); print("PASS")
+
+
+# --- 실무 계산내역(S: 드라이브 대웅바이오_25.4Q_계산내역.xlsx) 대조 ------------------
+#
+# 2025 대웅바이오 신고 기준 정답이다. 세후영업이익과 증여의제이익이 **원 단위까지** 맞아야 한다.
+# 세액은 아직 다르다 — 정답은 배당소득 공제와 신고세액공제 3% 를 더 반영하는데
+# 앱에는 그 두 단계가 없다(별건).
+
+DWBIO_2025_SALES = {
+    "대웅": 452_730, "IDS": 318_185, "대웅제약": 119_571_363_317, "대웅개발": 44_545,
+    "한올바이오파마": 23_855_010_314, "힐리언스": 181_820, "아피셀테라퓨틱스": 90_000,
+    "대웅이엔지": 544_550, "이지메디컴": 590_005, "엠서클": 558_182, "유와이즈원": 135_455,
+    "시지바이오": 1_884_706_839, "페이지원": 44_545, "더편한샵": 45_455,
+    "디엔컴퍼니": 4_204_544, "힐리언스코어운동": 90_910, "기타법인": 187_600_000,
+}
+DWBIO_2025_ARTICLE10 = {"대웅제약": 1_713_784_230}
+# 계산내역의 지배주주별 (세후영업이익, 증여의제이익)
+DWBIO_2025_EXPECTED = {
+    "A": (85_139_901_786, 715_119_801),
+    "C": (85_051_838_580, 1_371_573_033),
+    "D": (85_139_866_285, 580_625_997),
+}
+
+
+def _dwbio_2025():
+    return calc.evaluate_admin_review(
+        "대웅바이오", 116_207_012_131, 20_999_171_475, 641_338_729_689,
+        DWBIO_2025_SALES, year="2025", article10_exclusions=DWBIO_2025_ARTICLE10)
+
+
+def test_dwbio_2025_taxation_ratio_matches_the_worksheet():
+    """판정비율은 ⑩ 만 뺀 22.4206% 다. ⑭ 까지 뺀 13.55% 로 판정하면 비과세가 되어버린다."""
+    r = _dwbio_2025()
+    assert r["article10_total"] == 1_713_784_230
+    assert r["taxation_ratio"] == pytest.approx(0.2242063211, abs=1e-9)
+    assert r["normal_ratio"] == 0.2, "특관매출 1천억 초과 → 20%"
+    assert r["taxable"] is True
+
+
+def test_dwbio_2025_matches_the_worksheet_per_shareholder():
+    r = _dwbio_2025()
+    got = {d["code"]: d for d in r["shareholder_details"]}
+    for code, (after, deemed) in DWBIO_2025_EXPECTED.items():
+        assert got[code]["after_tax_operating_income"] == pytest.approx(after, abs=1), code
+        assert got[code]["deemed_gift_income"] == pytest.approx(deemed, abs=1), code
+    for code in ("B", "C1", "C11", "C12"):
+        assert got[code]["gift_tax"] == 0, f"{code} 는 요건③(한계보유비율 3%) 미달"
+
+
+def test_dwbio_2025_exclusion_total_matches_the_worksheet():
+    """계산내역의 ⑭ MAX 합계 66,105,831,055 + ⑩ 1,713,784,230 = 앱의 과세제외 합계."""
+    r = _dwbio_2025()
+    a = [d for d in r["shareholder_details"] if d["code"] == "A"][0]
+    assert a["excluded_sales"] == pytest.approx(66_105_831_055 + 1_713_784_230, abs=1)

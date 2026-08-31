@@ -148,7 +148,8 @@ def api_evaluate(req: EvaluateRequest, current: User = Depends(get_current_user)
     # (플래그가 서면 해당 거래처 매출이 전액 제외되어 세액을 임의로 낮출 수 있다).
     res = evaluate(req.company, req.operating_income, req.corporate_tax,
                    req.total_sales, req.related_sales,
-                   tax_adjustments=req.tax_adjustments, year=ds.year)
+                   tax_adjustments=req.tax_adjustments, year=ds.year,
+                   article10_exclusions=req.article10_exclusions)
     # calc.evaluate already returns only allowed aggregate fields
     return res
 
@@ -163,7 +164,8 @@ def admin_evaluate_review(req: EvaluateRequest, current: User = Depends(get_curr
                             detail=f"{ds.year}년 데이터에 없는 법인입니다. 법인 또는 연도를 확인하세요.")
     return evaluate_admin_review(req.company, req.operating_income, req.corporate_tax,
                                  req.total_sales, req.related_sales,
-                                 tax_adjustments=req.tax_adjustments, year=ds.year)
+                                 tax_adjustments=req.tax_adjustments, year=ds.year,
+                                 article10_exclusions=req.article10_exclusions)
 
 
 @app.get("/api/admin/summary")

@@ -15,6 +15,8 @@ def test_privacy_fields():
         "total_sales",
         "related_sales_total",
         "related_sales_ratio",
+        "article10_total",
+        "taxation_ratio",
         "normal_ratio",
         # 계산에 쓴 연도 이름표와 기준시점 문구. 지분 정보가 아니다.
         "year",

@@ -26,3 +26,7 @@ class EvaluateRequest(BaseModel):
     # (calc.indirect_invest_map). 클라이언트가 보내도 무시된다.
     # 세무조정내역: 가산 항목은 양수, 차감 항목은 음수
     tax_adjustments: Optional[Dict[str, int]] = None
+    # 거래처별 ⑩ 과세제외금액(상증령 §34의3 ⑩). 수출목적 매출 등 지분 데이터로는
+    # 도출되지 않는 값이라 신고서에서 확정한 금액을 그대로 받는다.
+    # 수혜법인이 그 거래처에 출자한 관계면 이 값과 무관하게 전액이 ⑩ 이다.
+    article10_exclusions: Optional[Dict[str, int]] = None

@@ -23,10 +23,12 @@ SUBJECT = "가나전자"          # 일반, 마바물산에 30% 출자
 COUNTERPARTY_10 = "마바물산"   # ⑩ 기본 과세제외
 COUNTERPARTY_14 = "사아텍"     # ⑭ 지분율 상당액 (A=0.4 … B=0)
 COUNTERPARTY_NONE = "자차산업"  # 지배주주 지분율 전무 → 과세제외 사유 없음
+COUNTERPARTY_HC = "지주자회사"   # ⑭2호 (지주회사 지분율 70% > 지배주주 A 40%)
 
 PUBLIC_FIELDS = {
     "company", "size", "taxable", "total_sales", "related_sales_total",
-    "related_sales_ratio", "normal_ratio", "deemed_gift_total", "gift_tax_total",
+    "related_sales_ratio", "article10_total", "taxation_ratio",
+    "normal_ratio", "deemed_gift_total", "gift_tax_total",
     # 계산에 쓴 연도 이름표와 기준시점 문구. 지분 정보가 아니다.
     "year", "data_as_of",
     "reason", "exclusion_details",
@@ -473,3 +475,75 @@ def test_companies_endpoint_returns_names_only(fixture_data):
     # year 는 어느 연도 목록인지 알려주는 이름표다. 규모·지분 정보는 여전히 없다.
     assert set(data) == {"companies", "year"}
     assert all(isinstance(name, str) for name in data["companies"])
+
+
+# --- ⑭2호(지주회사 지분율 상당액)와 판정/계산 비율 분리 -------------------------
+
+def test_section14_clause2_beats_clause3_when_larger(fixture_data):
+    """⑭ 는 호별 금액 중 가장 큰 하나만 쓴다. 지주회사 지분율(70%)이 지배주주(40%)보다 크다."""
+    calc = fixture_data
+    verdict = calc.exclusion_for(SUBJECT, COUNTERPARTY_HC, 1_000_000_000, "A")
+    assert verdict["article"] == calc.ARTICLE_14_2
+    assert verdict["excluded_sales"] == pytest.approx(700_000_000)
+
+
+def test_section14_clause2_needs_the_shareholder_to_own_the_counterparty(fixture_data):
+    """지배주주가 그 거래처 지분을 전혀 안 가지면 ⑭2호도 성립하지 않는다."""
+    calc = fixture_data
+    verdict = calc.exclusion_for(SUBJECT, COUNTERPARTY_NONE, 1_000_000_000, "A")
+    assert verdict["excluded_sales"] == 0
+    assert verdict["article"] == calc.ARTICLE_NONE
+
+
+def test_section14_clause2_needs_the_subject_under_the_same_holding_company(fixture_data):
+    """수혜법인이 그 지주회사의 자·손자회사가 아니면 ⑭2호를 쓰지 않는다."""
+    calc = fixture_data
+    verdict = calc.exclusion_for("다라화학", COUNTERPARTY_HC, 1_000_000_000, "A")
+    assert verdict["article"] == calc.ARTICLE_14_RATIO
+    assert verdict["excluded_sales"] == pytest.approx(400_000_000)
+
+
+def test_article10_amount_is_deducted_before_section14(fixture_data):
+    """⑩ 을 먼저 빼고 남은 금액에 ⑭ 를 적용한다. 종전에는 ⑩ 이 있으면 ⑭ 를 아예 안 봤다."""
+    calc = fixture_data
+    verdict = calc.exclusion_for(SUBJECT, COUNTERPARTY_HC, 1_000_000_000, "A",
+                                 article10=200_000_000)
+    assert verdict["excluded_sales"] == pytest.approx(200_000_000 + 560_000_000)
+    assert verdict["article10"] == 200_000_000
+
+
+def test_section18_clause1_is_skipped_when_article10_exists(fixture_data, monkeypatch):
+    """⑩ 이 있는 거래처에는 ⑭1호(전액 제외)를 적용하지 않는다."""
+    calc = fixture_data
+    monkeypatch.setitem(calc.dataset().section18, SUBJECT, {COUNTERPARTY_HC})
+    full = calc.exclusion_for(SUBJECT, COUNTERPARTY_HC, 1_000_000_000, "A")
+    assert full["article"] == calc.ARTICLE_14_1, "⑩ 이 없으면 1호가 전액 제외로 이긴다"
+    partial = calc.exclusion_for(SUBJECT, COUNTERPARTY_HC, 1_000_000_000, "A",
+                                 article10=200_000_000)
+    assert partial["article"] == calc.ARTICLE_14_2
+    assert partial["excluded_sales"] == pytest.approx(760_000_000)
+
+
+def test_gate_uses_the_article10_only_ratio_not_the_adjusted_one(fixture_data):
+    """과세요건 판정은 ⑩ 만 뺀 비율로 한다. ⑭ 까지 뺀 비율로 판정하면 과세대상이 사라진다.
+
+    2025 대웅바이오가 정확히 이 모양이다 — 판정비율 22.42%(> 20%)로 과세대상인데
+    계산비율은 13.55% 다. 둘을 같게 두면 세액이 통째로 0 이 된다.
+    """
+    calc = fixture_data
+    r = calc.evaluate(SUBJECT, 1_000_000_000, 0, 1_000_000_000,
+                      {COUNTERPARTY_HC: 400_000_000})
+    assert r["taxation_ratio"] == pytest.approx(0.4), "판정비율은 40%"
+    assert r["normal_ratio"] == 0.3
+    assert r["gift_tax_total"] > 0, "⑭ 제외로 조정비율이 16.7% 가 되어도 과세대상이다"
+
+
+def test_article10_input_lowers_the_taxation_ratio(fixture_data):
+    """⑩ 은 판정비율 자체를 낮춘다. 40% → (4억−1억)/10억 = 30% 로 문턱과 같아져 비과세."""
+    calc = fixture_data
+    r = calc.evaluate(SUBJECT, 1_000_000_000, 0, 1_000_000_000,
+                      {COUNTERPARTY_HC: 400_000_000},
+                      article10_exclusions={COUNTERPARTY_HC: 100_000_000})
+    assert r["article10_total"] == 100_000_000
+    assert r["taxation_ratio"] == pytest.approx(0.3)
+    assert r["gift_tax_total"] == 0, "문턱은 '초과'라 같으면 과세하지 않는다"

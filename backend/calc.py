@@ -19,6 +19,15 @@ DATA_FILES = (
 # 문턱은 '이상'이 아니라 '초과'다 — 경영진 이슈보고(2026-07-08)와 `대웅바이오 현황정리v2`
 # 모두 "1천억원 초과" 로 적는다. 상증법 §45의3①1호 나목도 같다.
 # (2026-08-31 에 '이상'으로 바꿨다가 두 문서를 확인하고 되돌렸다.)
+# 상증령 §34의3 ⑭2호 판정에 쓰는 지주회사 정보. 연도 폴더의 이 파일에서 읽으며,
+# **없으면 ⑭2호를 적용하지 않는다**(보수적으로 종전 동작 유지).
+#
+# 여기 지분율은 지주회사의 **직·간접** 지분율이며 자기주식을 반영한 값이다.
+# intercompany_holdings.json(직접지분율)을 체인으로 전개해도 이 값이 나오지 않는다 —
+# 중간 법인의 자기주식 때문이다(2025 대웅제약 경유분은 계수 0.983956 만큼 차이가 났다).
+# 그래서 도출하지 않고 지분율 엑셀/계산내역에서 받아 적는다.
+HOLDING_COMPANY_FILE = "holding_company.json"
+
 GENERAL_RELATED_SALES_THRESHOLD = 100_000_000_000
 GENERAL_HIGH_RELATED_RATIO = 0.2
 
@@ -102,6 +111,16 @@ class Dataset:
         self.section18 = {k: set(v)
                           for k, v in _load("section18_indirect_investors.json").items()
                           if not k.startswith("_")}
+
+        # ⑭2호용 지주회사 정보. 파일이 없어도 계산은 되며, 그 경우 ⑭2호만 적용되지 않는다.
+        hc = {}
+        hc_path = os.path.join(base, HOLDING_COMPANY_FILE)
+        if os.path.isfile(hc_path):
+            with open(hc_path, encoding="utf-8") as f:
+                hc = json.load(f)
+        self.holding_company = hc.get("지주회사")
+        self.holding_ratio = {k: float(v) for k, v in (hc.get("지분율") or {}).items()
+                              if not k.startswith("_")}
 
         self.codes = [s["code"] for s in self.params["shareholders"]]  # A,B,C,D,C1,C11,C12
         self.normal = self.params["정상거래비율"]
@@ -221,11 +240,13 @@ def company_list(year=None):
 # 적용 순서: ⑩ 기본 과세제외를 먼저 판정하고, 해당하지 않는 거래처만 ⑭ 추가 과세제외로 넘긴다.
 ARTICLE_10 = "상증령 §34의3 ⑩"
 ARTICLE_14_1 = "상증령 §34의3 ⑭1호 (§18 간접출자법인)"
+ARTICLE_14_2 = "상증령 §34의3 ⑭2호 (지주회사 지분율 상당액)"
 ARTICLE_14_RATIO = "상증령 §34의3 ⑭ (지배주주 지분율 상당액)"
 ARTICLE_NONE = "-"
 
 REASON_10 = "수혜법인이 해당 거래처에 출자 (기본 과세제외)"
 REASON_14_1 = "§18 간접출자법인과의 거래 (전액 제외)"
+REASON_14_2 = "수혜법인·거래처가 모두 지주회사의 자·손자회사 (지주회사 지분율 상당액)"
 REASON_14_RATIO = "지배주주의 해당 거래처 지분율 상당액"
 REASON_NONE = "과세제외 사유 없음"
 
@@ -244,36 +265,72 @@ def is_section18_indirect_investor(company, counterparty, ds=None):
     return counterparty in ds.section18.get(company, ())
 
 
-def exclusion_for(company, counterparty, sales, shareholder, ds=None):
-    """거래처 1건 × 지배주주 1인의 과세제외를 판정한다.
+def holding_company_ratio(company, counterparty, ds=None):
+    """⑭2호에 쓰는 지주회사 지분율. 요건을 못 갖추면 0.
 
-    ⑩ 기본 과세제외가 성립하면 그것으로 끝내고 ⑭ 는 보지 않는다.
-    ⑭ 안에서 사유가 겹치면 합산하지 않고 과세제외금액이 가장 큰 하나만 적용한다.
-
-    ds 를 주지 않으면 기본 연도로 판정한다. 다른 연도로 보려면
-    `calc.dataset("2025")` 를 넘긴다.
-
-    반환: {"reason", "article", "rate", "excluded_sales"}
+    ⑭2호는 **수혜법인과 특수관계법인이 모두 같은 지주회사의 자·손자회사**일 때만
+    성립한다. 그래서 둘 다 지주회사 지분율 표에 있어야 하고, 거래처가 지주회사
+    자신이면 적용하지 않는다(자기 자신에 대한 지분율이란 것이 없다).
     """
     ds = ds or dataset()
+    if not ds.holding_company or counterparty == ds.holding_company:
+        return 0.0
+    if company not in ds.holding_ratio:
+        return 0.0
+    return ds.holding_ratio.get(counterparty, 0.0)
+
+
+def exclusion_for(company, counterparty, sales, shareholder, ds=None, article10=0):
+    """거래처 1건 × 지배주주 1인의 과세제외를 판정한다.
+
+    두 단계다. **⑩ 을 먼저 빼고, 남은 금액에 ⑭ 를 적용한다.**
+    종전에는 ⑩ 이 있으면 거기서 끝내고 ⑭ 를 보지 않았는데, 실무 계산내역
+    (`대웅바이오_25.4Q_계산내역.xlsx`)은 ⑩ 을 뺀 잔액에 다시 ⑭ 를 적용한다.
+
+    ⑭ 는 1~4호 중 **금액이 가장 큰 하나만** 적용한다(합산하지 않는다).
+      - 1호: §18 간접출자법인과의 거래 → 전액. 단 ⑩ 이 있는 거래처에는 적용하지 않는다.
+      - 2호: 수혜법인·거래처가 모두 지주회사의 자·손자회사 → (매출−⑩) × 지주회사 지분율
+      - 3호: (매출−⑩) × 지배주주의 그 거래처 지분율
+      - 4호: 간접출자법인의 다른 자법인 → 실무상 2호와 같은 율이라 2호에 흡수된다.
+    2호·3호 모두 **지배주주가 그 거래처 지분을 조금이라도 가져야** 성립한다.
+
+    article10 은 신고서에서 확정한 ⑩ 과세제외금액이다. 지분 데이터로 도출되는 값이
+    아니라(수출목적 매출 등) 호출자가 넘겨준다. 수혜법인이 거래처에 출자한 관계면
+    그 인자와 무관하게 전액이 ⑩ 이다.
+
+    반환: {"reason", "article", "rate", "excluded_sales", "article10"}
+    """
+    ds = ds or dataset()
+    sales = float(sales)
     # ⑩ 기본 과세제외 — 수혜법인이 해당 거래처에 출자한 경우. 전액 제외.
     if ds.inter.get(company, {}).get(counterparty, 0) > 0:
         return {"reason": REASON_10, "article": ARTICLE_10,
-                "rate": 1.0, "excluded_sales": float(sales)}
+                "rate": 1.0, "excluded_sales": sales, "article10": sales}
 
-    # ⑭ 추가 과세제외 — 후보를 모두 세운 뒤 금액이 가장 큰 하나만 적용(합산하지 않는다).
+    a10 = min(max(float(article10 or 0), 0.0), sales)
+    base = sales - a10
+
     candidates = []
-    if is_section18_indirect_investor(company, counterparty, ds):
-        candidates.append((REASON_14_1, ARTICLE_14_1, 1.0))
-    ratio = ds.hold.get(counterparty, {}).get(shareholder, 0)
-    if ratio > 0:
-        candidates.append((REASON_14_RATIO, ARTICLE_14_RATIO, ratio))
+    if a10 == 0 and is_section18_indirect_investor(company, counterparty, ds):
+        candidates.append((REASON_14_1, ARTICLE_14_1, 1.0, sales))
+    mine = ds.hold.get(counterparty, {}).get(shareholder, 0)
+    if mine > 0:
+        hc = holding_company_ratio(company, counterparty, ds)
+        if hc > 0:
+            candidates.append((REASON_14_2, ARTICLE_14_2, hc, min(base, base * hc)))
+        candidates.append((REASON_14_RATIO, ARTICLE_14_RATIO, mine, min(base, base * mine)))
+
     if not candidates:
+        if a10 > 0:
+            return {"reason": REASON_10, "article": ARTICLE_10,
+                    "rate": a10 / sales if sales else 0.0,
+                    "excluded_sales": a10, "article10": a10}
         return {"reason": REASON_NONE, "article": ARTICLE_NONE,
-                "rate": 0.0, "excluded_sales": 0.0}
-    reason, article, rate = max(candidates, key=lambda c: sales * c[2])
-    return {"reason": reason, "article": article,
-            "rate": rate, "excluded_sales": sales * rate}
+                "rate": 0.0, "excluded_sales": 0.0, "article10": 0.0}
+
+    reason, article, rate, amount = max(candidates, key=lambda c: c[3])
+    return {"reason": reason, "article": article, "rate": rate,
+            "excluded_sales": a10 + amount, "article10": a10}
 
 
 def _ratio_exclusion_totals(details, ds):
@@ -301,9 +358,15 @@ def _public_detail(d):
                               "rate", "excluded_sales")}
 
 
-def _exclusions(company, related_sales, ds):
-    """거래처 전체를 훑어 (특관매출 합계, 지배주주별 과세제외 합계, 거래처별 내역)을 만든다."""
+def _exclusions(company, related_sales, ds, article10=None):
+    """거래처 전체를 훑어 (특관매출 합계, 주주별 과세제외 합계, 거래처별 내역, ⑩ 합계)를 만든다.
+
+    ⑩ 합계를 따로 돌려주는 이유는 **과세요건 판정에 쓰는 비율이 ⑩ 만 반영한 비율**이기 때문이다
+    (⑭ 는 증여의제이익 계산에만 반영한다). evaluate 가 그 값을 문턱과 비교한다.
+    """
+    article10 = article10 or {}
     teuk = 0.0
+    article10_total = 0.0
     excluded_by_code = {k: 0.0 for k in ds.codes}
     details = []
     for counterparty, sales in related_sales.items():
@@ -313,7 +376,8 @@ def _exclusions(company, related_sales, ds):
         teuk += sales
         by_shareholder = []
         for code in ds.codes:
-            verdict = exclusion_for(company, counterparty, sales, code, ds)
+            verdict = exclusion_for(company, counterparty, sales, code, ds,
+                                    article10=article10.get(counterparty, 0))
             excluded_by_code[code] += verdict["excluded_sales"]
             by_shareholder.append(dict(verdict, code=code))
         # ⑩ 과 §18 은 지배주주와 무관하게 같은 율이 적용되므로 대표값 하나로 요약된다.
@@ -337,7 +401,9 @@ def _exclusions(company, related_sales, ds):
             "excluded_sales_max": round(max(amounts)),
             "by_shareholder": by_shareholder,
         })
-    return teuk, excluded_by_code, details
+        # ⑩ 은 지배주주와 무관하게 같은 금액이라 대표값 하나면 된다.
+        article10_total += by_shareholder[0]["article10"]
+    return teuk, excluded_by_code, details, article10_total
 
 
 def _gift_tax(base, ds=None):
@@ -361,7 +427,8 @@ def _after_tax_base(operating_income, corporate_tax, tax_adjustments):
 
 
 def evaluate(company, operating_income, corporate_tax, total_sales,
-             related_sales=None, tax_adjustments=None, year=None):
+             related_sales=None, tax_adjustments=None, year=None,
+             article10_exclusions=None):
     """집계 결과만 반환 (지분율·지배주주별 내역 미반환).
 
     간접출자 여부는 인자로 받지 않는다. 서버가 §18 등재 데이터로 판정한다.
@@ -374,23 +441,24 @@ def evaluate(company, operating_income, corporate_tax, total_sales,
         raise ValueError(f"{ds.year}년 데이터에 없는 법인입니다: {company}")
     size = ds.sizes[company]
 
-    teuk, excluded_by_code, details = _exclusions(company, related_sales, ds)
+    teuk, excluded_by_code, details, a10_total = _exclusions(
+        company, related_sales, ds, article10_exclusions)
 
     after_tax_base = _after_tax_base(operating_income, corporate_tax, tax_adjustments)
-    normal_ratio = _normal_ratio(size, teuk, ds)
+    # 과세요건 판정에 쓰는 비율·금액은 ⑩ 만 반영한다(⑭ 는 계산에만 반영).
+    taxable_sales = teuk - a10_total
+    gate_ratio = (taxable_sales / total_sales) if total_sales else 0
+    normal_ratio = _normal_ratio(size, taxable_sales, ds)
+    over_threshold = gate_ratio > normal_ratio
     myhold = ds.hold.get(company, {})
     deemed_total = 0
     tax_total = 0
-    # 문턱을 넘긴 지배주주가 하나라도 있었는지. 사유 문구가 '비율 미달'과
-    # '비율은 넘었으나 보유요건 미충족'을 구분해 설명하려면 필요하다.
-    over_threshold = False
     for k in ds.codes:
         excl = excluded_by_code[k]
         ratio = 0 if (total_sales - excl) == 0 else (teuk - excl) / (total_sales - excl)
         after = 0 if total_sales == 0 else after_tax_base * (1 - excl / total_sales)
-        if ratio > normal_ratio:
-            over_threshold = True
-        deemed = _deemed_gift(size, after, ratio, myhold.get(k, 0), normal_ratio, ds)
+        deemed = _deemed_gift(size, after, ratio, myhold.get(k, 0), normal_ratio, ds,
+                              gate_ratio=gate_ratio)
         deemed_total += deemed
         tax_total += _gift_tax(deemed, ds)
 
@@ -404,10 +472,14 @@ def evaluate(company, operating_income, corporate_tax, total_sales,
         "total_sales": total_sales,
         "related_sales_total": teuk,
         "related_sales_ratio": (teuk / total_sales) if total_sales else 0,
+        # 과세요건 판정에 실제로 쓴 값들. 화면이 '왜 과세인지'를 설명하려면 이 비율이어야 한다.
+        "article10_total": round(a10_total),
+        "taxation_ratio": gate_ratio,
         "normal_ratio": normal_ratio,
         "deemed_gift_total": round(deemed_total),
         "gift_tax_total": tax_total,
-        "reason": _reason(size, teuk, total_sales, normal_ratio, tax_total, over_threshold),
+        "reason": _reason(size, taxable_sales, total_sales, normal_ratio, tax_total,
+                          over_threshold),
         # 거래처별 과세제외 사유·조문. 적용률·금액은 ⑩·§18(100%) 건만 채워지고
         # ⑭ 지분율 상당액 건은 None 이다. 합계도 내보내지 않는다(_ratio_exclusion_totals 주석 참조).
         "exclusion_details": [_public_detail(d) for d in details],
@@ -421,7 +493,7 @@ def _normal_ratio(size, related_sales_total, ds=None):
     return ds.normal[size]
 
 
-def _deemed_gift(size, after, ratio, holding, normal_ratio, ds=None):
+def _deemed_gift(size, after, ratio, holding, normal_ratio, ds=None, gate_ratio=None):
     """지배주주 1인의 증여의제이익. 과세요건 문턱도 여기서 함께 본다.
 
     비율이 네 개라 이름만 보고 고르면 틀린다. 요건별로 쓰는 값이 다르다.
@@ -437,14 +509,17 @@ def _deemed_gift(size, after, ratio, holding, normal_ratio, ds=None):
     일반은 공제보유비율이 0% 라 0.3% 를 가진 주주에게도 세액이 붙었다.
     문턱은 둘 다 '초과'(>)여야 하며, 같으면 과세하지 않는다.
 
-    판정에 쓰는 비율은 **과세제외를 반영한 지배주주별 조정비율**이다. ⑭ 과세제외가
-    지배주주마다 달라 비율도 갈리므로, 계산식이 쓰는 값과 판정에 쓰는 값을 같게 둔다.
-    (화면에 '조정 후 비율 28%' 로 찍히면서 '30% 초과라 과세' 가 되는 모순을 막는다.)
+    **판정에 쓰는 비율과 계산에 쓰는 비율은 다르다.**
+      - 판정(요건②): `gate_ratio` — ⑩ 만 뺀 법인 단위 비율. 지배주주마다 같다.
+      - 계산: `ratio` — ⑩ 과 ⑭ 를 모두 뺀 지배주주별 조정비율.
+    실무 계산내역이 그렇게 한다. 2025 대웅바이오는 판정비율 22.42%(> 20%)로 과세대상인데
+    계산비율은 13.55% 다. 둘을 같게 두면(종전 동작) 이 법인이 통째로 비과세가 되어버린다.
+    gate_ratio 를 주지 않으면 종전처럼 ratio 하나로 판정한다.
 
     evaluate 와 evaluate_admin_review 가 각자 계산하다 어긋나지 않도록 한 곳에 둔다.
     """
     ds = ds or dataset()
-    if ratio <= normal_ratio:
+    if (ratio if gate_ratio is None else gate_ratio) <= normal_ratio:
         return 0.0
     if holding <= ds.limit_h[size]:
         return 0.0
@@ -454,17 +529,20 @@ def _deemed_gift(size, after, ratio, holding, normal_ratio, ds=None):
 
 
 def evaluate_admin_review(company, operating_income, corporate_tax, total_sales,
-                          related_sales=None, tax_adjustments=None, year=None):
+                          related_sales=None, tax_adjustments=None, year=None,
+                          article10_exclusions=None):
     """관리자 검토 화면 전용 집계. 주주별 적용률(=지분율)까지 노출한다.
 
     과세제외 계산은 evaluate 와 같은 _exclusions 를 쓴다(두 경로가 어긋나지 않도록).
     """
     ds = dataset(year)
     result = evaluate(company, operating_income, corporate_tax, total_sales,
-                      related_sales, tax_adjustments, year=year)
+                      related_sales, tax_adjustments, year=year,
+                      article10_exclusions=article10_exclusions)
     related_sales = related_sales or {}
     after_tax_base = _after_tax_base(operating_income, corporate_tax, tax_adjustments)
-    teuk, excluded_by_code, details = _exclusions(company, related_sales, ds)
+    teuk, excluded_by_code, details, a10_total = _exclusions(
+        company, related_sales, ds, article10_exclusions)
     size = result["size"]
 
     # ⑩ 기본 과세제외분은 지배주주와 무관하게 모두에게 동일하게 빠지는 '공통' 제외분이다.
@@ -484,7 +562,8 @@ def evaluate_admin_review(company, operating_income, corporate_tax, total_sales,
         # evaluate 와 같은 헬퍼를 쓴다. 여기서 식을 따로 쓰면 두 화면의 숫자가 갈린다.
         deemed = _deemed_gift(size, after, adjusted_ratio,
                               ds.hold.get(company, {}).get(shareholder, 0),
-                              _normal_ratio(size, teuk, ds), ds)
+                              result["normal_ratio"], ds,
+                              gate_ratio=result["taxation_ratio"])
         shareholder_details.append({
             # 지배주주 실명은 내보내지 않는다. 화면은 코드(A/B/C/D/C1/C11/C12)로만
             # 표시하므로 응답에 실어봐야 개발자도구에 노출될 뿐이다.
