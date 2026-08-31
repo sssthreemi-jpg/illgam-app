@@ -3,146 +3,264 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>DAEWOONG - 증여세 검토</title>
-  <link href="https://fonts.googleapis.com/css2?family=Nanum+Gothic:wght@400;700&display=swap" rel="stylesheet">
+  <title>대웅그룹 · 증여세 검토</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
-    .login-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(#fbfdff,#f7f9fc);z-index:60}
-    .login-card{width:360px;max-width:92vw;background:white;border-radius:12px;padding:28px 28px;box-shadow:0 12px 36px rgba(16,24,40,0.08);border:1px solid rgba(20,30,50,0.04);font-family:'Nanum Gothic',sans-serif}
-    .login-card input{width:100%;padding:12px 14px;border-radius:10px;border:1px solid #eef2f6;background:#fff;outline:none;font-size:14px}
-    .login-card button.full{width:100%;padding:12px 14px;border-radius:10px;background:#f2a319;border:none;color:white;font-weight:800;font-size:15px;box-shadow:0 6px 14px rgba(242,163,25,0.12)}
-    :root{--brand:#1264d6;--brand-dark:#0b3f91;--accent:#f2a319;--muted:#64748b;--bg:#f3f6fa;--card:#fff;--line:#dfe7f1;--soft:#f7faff}
-    *,*:before,*:after{box-sizing:border-box}
-    html,body{height:100%}
-    body{font-family:'Nanum Gothic','Noto Sans KR',sans-serif;margin:0;background:linear-gradient(135deg,#f1f5f9 0%,#f8fafc 55%,#eef4fb 100%);color:#142033;font-size:14px}
-    .wrap{max-width:1180px;margin:28px auto;padding:0 20px}
-    header{display:flex;align-items:center;gap:18px;padding:22px 26px;background:var(--card);border-left:5px solid var(--brand);border-radius:10px;box-shadow:0 8px 24px rgba(30,55,90,.06)}
-    header img{width:100px;height:auto}
-    h1{margin:0;font-size:20px;color:var(--brand);font-weight:700}
-    h2{font-size:21px;line-height:1.35;margin:0;color:#17243a}
-    h3{font-size:16px;line-height:1.4;color:#17243a}
-    .muted{color:var(--muted);font-size:12px}
-    .content{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:18px;padding:18px 0}
-    .result-page{margin:18px 0;padding:28px;min-height:420px}
-    .result-page-head{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-bottom:18px;border-bottom:1px solid #edf1f6}
-    .result-actions{display:flex;gap:8px;flex-wrap:wrap}
-    .form-error{min-height:20px;margin-top:8px;color:#b42318;font-size:12px;font-weight:700}
-    .report-section{margin-top:22px}
-    .report-section h3{margin:0 0 10px;font-size:15px}
-    .report-table{width:100%;border-collapse:collapse;border:1px solid var(--line);font-size:13px}
-    .report-table th,.report-table td{padding:10px;border:1px solid var(--line);text-align:left;vertical-align:middle}
-    .report-table th{width:32%;background:#f1f5fa;color:#475569;font-weight:700}
-    .report-table td.amount{text-align:right;font-variant-numeric:tabular-nums}
-    .report-table thead th{width:auto;background:#eaf1fa}
-    .report-status{display:inline-flex;align-items:center;padding:5px 10px;border-radius:999px;font-weight:800;font-size:12px}
-    .report-status.yes{background:#fee2e2;color:#b42318}
-    .report-status.no{background:#dcfce7;color:#166534}
-    .report-note{margin-top:10px;padding:12px 14px;background:#f7faff;border-left:4px solid var(--brand);color:#334155;line-height:1.6}
-    .result-back-wrap{display:flex;justify-content:center;margin-top:26px}
-    .logic-box{margin-top:22px;padding:16px 18px;background:#f8fafc;border:1px solid var(--line);border-radius:8px}
-    .logic-box h3{margin:0 0 12px;color:var(--brand-dark)}
-    .logic-box ol{margin:0;padding-left:22px;color:#334155;line-height:1.8}
-    .logic-formula{margin-top:12px;padding:12px;background:#fff;border:1px dashed #cbd8e8;border-radius:6px;color:#475569;font-size:13px;line-height:1.7}
-    .detail-table{min-width:900px}
-    .exclusion-table{min-width:760px}
-    .exclusion-table thead th{white-space:nowrap}
-    .raw-page{margin:18px 0;padding:28px;min-height:420px}
-    .raw-table{width:100%;border-collapse:collapse;border:1px solid var(--line);font-size:13px}
-    .raw-table th,.raw-table td{padding:10px;border:1px solid var(--line);text-align:left}
-    .raw-table th{width:30%;background:#f1f5fa;color:#475569}
-    .raw-json{margin:0;padding:14px;background:#f8fafc;border:1px solid var(--line);border-radius:6px;white-space:pre-wrap;word-break:break-word;font:13px/1.6 Consolas,monospace;color:#334155}
-    .fixed-label{display:block;padding:9px 11px;min-height:36px;color:#334155}
-    .total-row td{background:#f1f5fa;font-weight:800}
-    @media(max-width:600px){.result-page{padding:18px}.report-table th{width:40%}.report-table th,.report-table td{padding:8px}}
-    .card{background:var(--card);border-radius:10px;padding:22px;border:1px solid var(--line);box-shadow:0 6px 20px rgba(30,55,90,.045)}
-    #app{min-width:0}
-    #app>div:first-child{padding-bottom:16px;border-bottom:1px solid #edf1f6}
-    form{display:block;margin-top:4px}
-    .col{min-width:0;padding:0}
-    .input-section{padding:20px 0;border-top:1px solid #edf1f6}
-    .input-section:first-child{padding-top:4px;border-top:0}
-    .input-section-title{margin:0 0 16px;font-size:16px;color:var(--brand-dark)}
-    .basic-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
-    label{display:block;margin:18px 0 7px;font-size:13px;font-weight:700;line-height:1.35;color:#29384c}
-    label:first-child{margin-top:0}
-    input,textarea,select{display:block;width:100%;min-height:40px;padding:9px 11px;border:1px solid #cfdbea;border-radius:6px;font:inherit;font-size:14px;background:#fff;color:#142033;outline:none;transition:border-color .15s,box-shadow .15s}
-    input:focus,textarea:focus,select:focus{border-color:var(--brand);box-shadow:0 0 0 3px rgba(18,100,214,.12)}
-    textarea{min-height:110px;font-family:inherit;resize:vertical}
-    button{background:var(--brand);color:#fff;border:0;padding:10px 15px;min-height:40px;border-radius:6px;cursor:pointer;font:inherit;font-weight:700;white-space:nowrap;transition:background .15s,transform .15s}
-    button:hover{background:var(--brand-dark)}
-    button:active{transform:translateY(1px)}
-    button.secondary{background:#64748b}
-    #result{background:#f8fafc !important;color:#142033 !important;padding:16px !important;border-radius:8px !important;overflow:auto;min-height:220px;border:1px solid var(--line);line-height:1.6}
-    .field-row{display:flex;gap:8px}
-    .field-row input{flex:1}
-    .hint{font-size:12px;color:var(--muted);margin-top:6px;line-height:1.5}
-    .sample{background:var(--soft);border:1px solid #d9e7fb;padding:10px;border-radius:6px;color:#2865b8;font-size:12px;line-height:1.5;word-break:break-word}
-    aside.card{align-self:stretch}
-    aside ul{padding-left:20px;line-height:1.7;color:#334155}
-    aside li{padding-left:2px}
-    footer{padding:16px 22px;background:rgba(255,255,255,.65);border-top:1px solid var(--line);border-radius:8px;color:#64748b;font-size:12px}
-    @media(max-width:800px){.content{grid-template-columns:1fr}.basic-grid{grid-template-columns:1fr}.wrap{margin:16px auto;padding:0 12px}header{padding:18px 20px}}
-    table{width:100%;font-size:13px;border-collapse:separate;border-spacing:0;overflow:hidden;border:1px solid var(--line);border-radius:7px}
-    .import-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
-    .import-bar .hint{margin-top:0;flex:1;min-width:200px}
-    .import-report{margin-bottom:14px;padding:14px 16px;border-radius:8px;border:1px solid var(--line);background:var(--soft)}
-    .import-report.error{background:#fef2f2;border-color:#fecaca}
-    .import-report h5{margin:0 0 8px;font-size:14px;color:var(--brand-dark)}
-    .import-report .import-warn{margin-top:6px;color:#92400e;background:#fffbeb;border-left:3px solid #f59e0b;padding:8px 10px;border-radius:4px;font-size:12px;line-height:1.5}
-    .import-report .import-fail{color:#b42318;font-weight:700}
-    .unmatched-table{width:100%;border-collapse:collapse;margin-top:10px;font-size:13px;background:#fff;border:1px solid var(--line);border-radius:6px}
-    .unmatched-table th,.unmatched-table td{padding:7px 9px;border-bottom:1px solid #edf1f6;text-align:left}
-    .unmatched-table th{background:#f1f5fa;color:#475569;font-weight:700;font-size:12px}
-    .unmatched-table td.amount{text-align:right;font-variant-numeric:tabular-nums}
-    .unmatched-table select{min-height:32px;padding:5px 7px;font-size:13px}
-    .import-actions{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
-    .import-actions button{padding:7px 12px;min-height:34px;font-size:13px}
-    #related_table th,#tax_table th{background:#f1f5fa;position:sticky;top:0}
-    #related_table td input,#tax_table td input{border:1px solid #d9e3ef;padding:8px;border-radius:5px;min-height:36px}
-    #related_table thead th,#tax_table thead th{padding:10px 9px;text-align:left;color:#475569;font-weight:700}
-    #related_table td,#tax_table td{padding:8px 9px;border-top:1px solid #edf1f6}
-    #related_table tbody tr:nth-child(even),#tax_table tbody tr:nth-child(even){background:#fbfdff}
+  *,*:before,*:after{margin:0;padding:0;box-sizing:border-box}
+  :root{
+    --dw:#F28B00; --dw-d:#C26A00; --dw-s:#FFF6EA; --dw-bd:#FBDFB6;
+    --bg:#F4F5F6; --card:#fff; --soft:#FAFAFB;
+    --t1:#17181A; --t2:#5C6166; --t3:#9AA0A6;
+    --bd:#E7E9EC; --bd2:#F0F1F3;
+    --ok:#0E9F6E; --ok-s:#E7F6EF; --bad:#C22C2C; --bad-s:#FDECEC;
+    --r:14px;
+  }
+  html{-webkit-text-size-adjust:100%}
+  body{font-family:'Noto Sans KR',-apple-system,'Apple SD Gothic Neo','Malgun Gothic',sans-serif;
+    background:var(--bg);color:var(--t1);font-size:14px;line-height:1.6;
+    -webkit-font-smoothing:antialiased;font-feature-settings:'tnum' 1}
+  b,strong{font-weight:700}
+  em{font-style:normal}
+
+  /* ── 헤더 ── */
+  .top{position:sticky;top:0;z-index:30;background:rgba(255,255,255,.94);
+    -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border-bottom:1px solid var(--bd)}
+  .top-in{max-width:1280px;margin:0 auto;padding:0 32px;height:66px;display:flex;align-items:center;gap:14px}
+  .top img{height:26px;display:block}
+  .vr{width:1px;height:22px;background:var(--bd);flex:none}
+  .ttl{font-size:16px;font-weight:700;letter-spacing:-.2px;white-space:nowrap}
+  .ttl em{color:var(--dw)}
+  .pill{border:1px solid var(--bd);border-radius:20px;padding:4px 11px;font-size:12px;
+    color:var(--t2);font-weight:500;white-space:nowrap}
+  .pill:empty{display:none}
+  .pill.acc{border-color:var(--dw-bd);background:var(--dw-s);color:var(--dw-d)}
+  .top-r{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--t3)}
+
+  .wrap{max-width:1280px;margin:0 auto;padding:26px 32px 72px}
+  .sec-t{font-size:12px;font-weight:700;color:var(--t3);letter-spacing:.6px;margin:0 0 10px 2px}
+
+  /* ── 카드 ── */
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:var(--r);padding:22px 24px}
+  .content{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:12px;align-items:start}
+  #app{min-width:0}
+  h2{font-size:20px;font-weight:700;letter-spacing:-.4px;line-height:1.35}
+  h3{font-size:15px;font-weight:700;line-height:1.4}
+  .muted{color:var(--t3);font-size:12px}
+  .hint{font-size:12px;color:var(--t3);margin-top:6px;line-height:1.55}
+  .form-error{min-height:20px;margin-top:10px;color:var(--bad);font-size:12.5px;font-weight:700}
+
+  /* ── 입력 섹션 ── */
+  form{display:block}
+  .input-section{padding:22px 0;border-top:1px solid var(--bd2)}
+  .input-section:first-of-type{padding-top:2px;border-top:0}
+  .input-section-title{display:flex;align-items:center;gap:9px;margin:0 0 16px;
+    font-size:14.5px;font-weight:700;color:var(--t1)}
+  .input-section-title i{flex:none;width:19px;height:19px;border-radius:50%;background:var(--dw-s);
+    color:var(--dw-d);font-size:11px;font-weight:700;font-style:normal;
+    display:flex;align-items:center;justify-content:center}
+  .basic-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 18px}
+  label{display:block;margin:0 0 7px;font-size:12.5px;font-weight:700;line-height:1.35;color:var(--t2)}
+  input,textarea,select{display:block;width:100%;min-height:40px;padding:9px 12px;
+    border:1px solid var(--bd);border-radius:9px;font:inherit;font-size:14px;background:#fff;
+    color:var(--t1);outline:none;transition:border-color .12s,box-shadow .12s;
+    -webkit-appearance:none;appearance:none}
+  input[type=number]{font-variant-numeric:tabular-nums}
+  input:focus,textarea:focus,select:focus{border-color:var(--dw);box-shadow:0 0 0 3px rgba(242,139,0,.12)}
+  input::placeholder{color:var(--t3)}
+  input:disabled,select:disabled,input[readonly]{background-color:var(--soft);color:var(--t3);cursor:not-allowed}
+  [hidden]{display:none!important}
+  textarea{min-height:110px;font-family:inherit;resize:vertical}
+  select{padding-right:30px;cursor:pointer;
+    background-image:url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%239AA0A6' stroke-width='1.8' stroke-linecap='round'%3E%3Cpath d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 9px center;background-size:16px}
+
+  /* ── 버튼 ── */
+  button{background:var(--dw);color:#fff;border:1px solid var(--dw);padding:10px 17px;min-height:40px;
+    border-radius:9px;cursor:pointer;font:inherit;font-size:13.5px;font-weight:700;white-space:nowrap;
+    transition:background .12s,border-color .12s,color .12s;-webkit-appearance:none;appearance:none}
+  button.secondary{background:#fff;border-color:var(--bd);color:var(--t2)}
+  button:active{transform:translateY(1px)}
+  .btn-row{margin-top:22px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .btn-row .hint{margin-top:0}
+
+  /* ── 결과 / RAWDATA 페이지 ── */
+  .result-page,.raw-page{margin:0;min-height:420px}
+  .result-page-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;
+    padding-bottom:18px;border-bottom:1px solid var(--bd2)}
+  .result-actions{display:flex;gap:8px;flex-wrap:wrap}
+  .result-back-wrap{display:flex;justify-content:center;margin-top:28px;padding-top:20px;
+    border-top:1px solid var(--bd2)}
+  #result{margin-top:22px;min-height:220px;line-height:1.6}
+  #rawdata-content{margin-top:22px}
+
+  .report-section{margin-top:26px}
+  .report-section:first-child{margin-top:0}
+  .report-section h3{margin:0 0 10px;font-size:13.5px;font-weight:700;color:var(--t1)}
+
+  /* ── 표 ── */
+  table{width:100%;font-size:13px}
+  .report-table,.raw-table,.unmatched-table{width:100%;border-collapse:collapse;
+    border:1px solid var(--bd);border-radius:10px;overflow:hidden;font-size:13px;background:#fff}
+  .report-table th,.report-table td,.raw-table th,.raw-table td{padding:10px 12px;
+    border:1px solid var(--bd2);text-align:left;vertical-align:middle;color:var(--t1)}
+  .report-table th,.raw-table th{width:32%;background:var(--soft);color:var(--t2);font-weight:700;font-size:12.5px}
+  .report-table thead th,.raw-table thead th{width:auto;background:#F5F6F7;white-space:nowrap}
+  .report-table td.amount,.unmatched-table td.amount{text-align:right;font-variant-numeric:tabular-nums}
+  .report-table td.amount.muted{color:var(--t3)}
+  .total-row td{background:var(--soft);font-weight:700}
+  .detail-table{min-width:900px}
+  .exclusion-table{min-width:760px}
+  .exclusion-table thead th{white-space:nowrap}
+
+  .report-status{display:inline-flex;align-items:center;padding:4px 11px;border-radius:999px;
+    font-weight:700;font-size:12px}
+  .report-status.yes{background:var(--bad-s);color:var(--bad)}
+  .report-status.no{background:var(--ok-s);color:var(--ok)}
+  .report-note{margin-top:12px;padding:12px 15px;background:var(--dw-s);border-left:3px solid var(--dw);
+    border-radius:0 8px 8px 0;color:var(--t2);line-height:1.65;font-size:13px}
+
+  .logic-box{margin-top:26px;padding:18px 20px;background:var(--card);border:1px solid var(--bd);
+    border-left:3px solid var(--dw);border-radius:var(--r)}
+  .logic-box h3{margin:0 0 12px;color:var(--dw-d)}
+  .logic-box ol{margin:0;padding-left:20px;color:var(--t2);line-height:1.8;font-size:13px}
+  .logic-formula{margin-top:12px;padding:12px 14px;background:var(--soft);border:1px dashed var(--bd);
+    border-radius:8px;color:var(--t2);font-size:12.5px;line-height:1.7}
+
+  .raw-json{margin:0;padding:14px;background:var(--soft);border:1px solid var(--bd);border-radius:10px;
+    white-space:pre-wrap;word-break:break-word;font:12.5px/1.65 Consolas,monospace;color:var(--t2)}
+  .fixed-label{display:block;padding:9px 12px;min-height:38px;color:var(--t2)}
+
+  /* ── 엑셀 업로드 ── */
+  .import-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+  .import-bar .hint{margin-top:0;flex:1;min-width:220px}
+  .import-report{margin-bottom:14px;padding:14px 16px;border-radius:10px;border:1px solid var(--bd);
+    background:var(--soft)}
+  .import-report.error{background:var(--bad-s);border-color:#F6D5D5}
+  .import-report h5{margin:0 0 8px;font-size:13.5px;font-weight:700;color:var(--dw-d)}
+  .import-report .import-warn{margin-top:8px;padding:9px 12px;color:var(--dw-d);background:var(--dw-s);
+    border-left:3px solid var(--dw);border-radius:0 6px 6px 0;font-size:12px;line-height:1.55}
+  .import-report .import-fail{color:var(--bad);font-weight:700}
+  .unmatched-table{margin-top:10px}
+  .unmatched-table th,.unmatched-table td{padding:8px 10px;border-bottom:1px solid var(--bd2);text-align:left}
+  .unmatched-table th{background:var(--soft);color:var(--t2);font-weight:700;font-size:12px}
+  .unmatched-table select{min-height:34px;padding:6px 26px 6px 9px;font-size:13px}
+  .import-actions{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
+  .import-actions button{padding:8px 13px;min-height:36px;font-size:13px}
+
+  /* ── 입력 표 ── */
+  #related_table,#tax_table{width:100%;border-collapse:collapse;border:1px solid var(--bd);
+    border-radius:10px;overflow:hidden;background:#fff}
+  #related_table thead th,#tax_table thead th{padding:10px 12px;text-align:left;background:var(--soft);
+    color:var(--t2);font-weight:700;font-size:12.5px}
+  #related_table td,#tax_table td{padding:7px 12px;border-top:1px solid var(--bd2)}
+  #related_table tbody tr:nth-child(even),#tax_table tbody tr:nth-child(even){background:var(--soft)}
+  #related_table td input,#tax_table td input{min-height:36px;padding:7px 10px;border-radius:7px;
+    text-align:right;font-variant-numeric:tabular-nums}
+  .table-scroll{overflow:auto;margin-bottom:4px}
+
+  /* ── 사이드 가이드 ── */
+  aside.card{border-left:3px solid var(--dw);position:sticky;top:90px}
+  aside h3{margin:0 0 4px}
+  aside ul{margin-top:12px;padding-left:18px;line-height:1.75;color:var(--t2);font-size:12.5px}
+  aside li{padding-left:2px;margin-bottom:5px}
+  aside li strong{color:var(--t1)}
+  aside hr{border:0;border-top:1px solid var(--bd2);margin:16px 0}
+  .sample{background:var(--dw-s);border:1px solid var(--dw-bd);padding:11px 13px;border-radius:9px;
+    color:var(--dw-d);font-size:12.5px;line-height:1.55;word-break:keep-all}
+
+  .foot{margin-top:22px;padding:16px 4px;color:var(--t3);font-size:12px;text-align:center}
+
+  /* ── 로그인 ── */
+  .login-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    background:var(--bg);z-index:60;padding:20px}
+  .login-card{width:390px;max-width:100%;background:var(--card);border:1px solid var(--bd);
+    border-radius:var(--r);padding:32px 30px}
+  .login-card img{height:26px;display:block;margin-bottom:22px}
+  .login-card h2{margin:0 0 2px;font-size:19px}
+  .login-card .lead{color:var(--t3);font-size:12.5px;margin-bottom:22px}
+  .login-field{margin-bottom:12px}
+  .login-card button.full{width:100%;padding:12px 14px;min-height:46px;font-size:14.5px}
+
+  /* ── hover 는 마우스 기기에서만 ── */
+  @media(hover:hover) and (pointer:fine){
+    button:hover{background:var(--dw-d);border-color:var(--dw-d)}
+    button.secondary:hover{border-color:var(--t3);color:var(--t1);background:#fff}
+  }
+  /* ── 터치 기기 ── */
+  button,select{touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+  @media(pointer:coarse){
+    input,textarea,select{font-size:16px;min-height:46px}
+    button{min-height:46px;font-size:14px}
+    .top-in{height:60px}
+  }
+
+  @media(max-width:1000px){
+    .content{grid-template-columns:1fr}
+    aside.card{position:static}
+  }
+  @media(max-width:720px){
+    .wrap,.top-in{padding-left:16px;padding-right:16px}
+    .wrap{padding-top:18px}
+    .basic-grid{grid-template-columns:1fr}
+    .card{padding:18px 16px}
+    .result-page-head{flex-direction:column}
+    .report-table th,.raw-table th{width:40%}
+    .report-table th,.report-table td,.raw-table th,.raw-table td{padding:8px 10px}
+    .ttl{font-size:14px}
+  }
+  @media print{
+    body{background:#fff}
+    .top{position:static}
+    .top-r,.result-actions,.result-back-wrap,#input-page{display:none}
+    .card{border-color:#D5D9DE;break-inside:avoid}
+    aside.card{display:none}
+  }
   </style>
 </head>
 <body>
+
+  <!-- ── 로그인 ── -->
   <div id="login-overlay" class="login-overlay">
     <div class="login-card">
-      
-      <h2 style="margin:0 0 12px 0;text-align:left;font-size:20px">로그인</h2>
-      <div style="margin-bottom:8px">
-        <label style="font-weight:600;font-size:13px">아이디</label>
-        <input id="username" value="" placeholder="name@example.com">
+      <img src="/assets/daewoong-logo.png" alt="대웅">
+      <h2>증여세 검토</h2>
+      <div class="lead">대웅그룹 일감몰아주기 증여세 검토 서비스</div>
+      <div class="login-field">
+        <label for="username">아이디</label>
+        <input id="username" value="" placeholder="name@example.com" autocomplete="username">
       </div>
-      <div style="margin-bottom:12px">
-        <label style="font-weight:600;font-size:13px">비밀번호</label>
-        <input id="password" type="password" value="" placeholder="비밀번호">
+      <div class="login-field">
+        <label for="password">비밀번호</label>
+        <input id="password" type="password" value="" placeholder="비밀번호" autocomplete="current-password">
       </div>
       <div id="login-error" class="form-error" role="alert" aria-live="polite"></div>
-      <div style="margin-bottom:6px"><button type="button" id="login" class="full">로그인</button></div>
-      <div style="display:flex;justify-content:center;gap:18px;font-size:13px;color:var(--muted);margin-top:8px">
-        <a href="#" style="color:var(--muted);text-decoration:none">회원가입</a>
-        <span style="color:#f0f0f0">|</span>
-        <a href="#" style="color:var(--muted);text-decoration:none">비밀번호 찾기</a>
-      </div>
+      <button type="button" id="login" class="full">로그인</button>
     </div>
   </div>
-  <div class="wrap">
-    <header style="padding:18px 24px;background:var(--card);border-left:6px solid var(--brand)">
-      <div style="font-size:20px;font-weight:800;color:#0b2540;letter-spacing:1px">DAEWOONG</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:6px">PHARMACEUTICAL CO.,LTD. · 증여세 검토</div>
-    </header>
 
+  <!-- ── 헤더 ── -->
+  <div class="top"><div class="top-in">
+    <img src="/assets/daewoong-logo.png" alt="대웅">
+    <span class="vr"></span>
+    <span class="ttl">일감몰아주기 <em>증여세 검토</em></span>
+    <span class="pill acc" id="mycompany"></span>
+    <span class="pill" id="hint"></span>
+    <span class="top-r"><span>금액은 원 단위 정수</span></span>
+  </div></div>
+
+  <div class="wrap">
+
+    <!-- ── 입력 ── -->
     <div id="input-page" class="content">
       <div>
+        <p class="sec-t">검토 자료 입력</p>
         <div id="app" class="card" style="display:none">
-          <div style="display:flex;justify-content:space-between;align-items:center">
-            <h2 style="margin:0">내 법인 정보 <span class="hint" id="hint"></span></h2>
-            <div id="mycompany" class="hint"></div>
-          </div>
-
-          <h3 style="margin-top:16px">검토 자료 입력</h3>
           <form onsubmit="return false;">
+
             <section class="input-section">
-              <h4 class="input-section-title">1. 기본정보 입력</h4>
+              <h4 class="input-section-title"><i>1</i>기본정보</h4>
               <div class="basic-grid">
                 <div>
                   <label for="data_year">검토 연도</label>
@@ -172,12 +290,13 @@
                 <div>
                   <label for="operating_income">영업이익 (원)</label>
                   <input id="operating_income" type="number" value="1000000" min="0" placeholder="예: 1000000">
+                  <div class="hint">세무조정 <em>전</em> 금액</div>
                 </div>
               </div>
             </section>
 
             <section class="input-section">
-              <h4 class="input-section-title">2. 특수관계자 세부매출</h4>
+              <h4 class="input-section-title"><i>2</i>특수관계자 세부매출</h4>
 
               <div class="import-bar">
                 <button type="button" id="template-download" class="secondary">양식 다운로드</button>
@@ -189,79 +308,76 @@
               <div id="import-report" class="import-report" style="display:none"></div>
 
               <label for="related_table">법인별 매출액 입력</label>
-              <div style="margin-bottom:8px;">
-                <div style="overflow:auto">
-                  <table id="related_table" style="width:100%;border-collapse:collapse">
-                    <thead>
-                      <tr>
-                        <th style="text-align:left;padding:6px;border-bottom:1px solid #eee">거래처명</th>
-                        <th style="text-align:left;padding:6px;border-bottom:1px solid #eee">매출액 (원)</th>
-                      </tr>
-                    </thead>
-                    <tbody></tbody>
-                  </table>
-                </div>
+              <div class="table-scroll">
+                <table id="related_table">
+                  <thead><tr><th>거래처명</th><th>매출액 (원)</th></tr></thead>
+                  <tbody></tbody>
+                </table>
               </div>
             </section>
 
             <section class="input-section">
-              <h4 class="input-section-title">3. 세무조정내역</h4>
-              <label for="tax_table">항목별 금액 입력 <span class="hint">가산은 양수, 차감은 음수로 입력하세요 (예: -3500000)</span></label>
-              <div style="margin-bottom:8px;">
-                <div style="overflow:auto">
-                  <table id="tax_table" style="width:100%;border-collapse:collapse">
-                    <thead><tr><th>항목</th><th>금액 (원)</th></tr></thead>
-                    <tbody>
-                      <tr data-tax-item="감가상각비"><td class="fixed-label">감가상각비</td><td><input class="tamt" type="number" step="1" value="0" placeholder="0"></td></tr>
-                      <tr data-tax-item="퇴직급여충당금"><td class="fixed-label">퇴직급여충당금</td><td><input class="tamt" type="number" step="1" value="0" placeholder="0"></td></tr>
-                      <tr data-tax-item="대손충당금 (대손상각비)"><td class="fixed-label">대손충당금 (대손상각비)</td><td><input class="tamt" type="number" step="1" value="0" placeholder="0"></td></tr>
-                      <tr data-tax-item="귀속시기"><td class="fixed-label">귀속시기</td><td><input class="tamt" type="number" step="1" value="0" placeholder="0"></td></tr>
-                      <tr data-tax-item="취득가액 관련 (현할차)"><td class="fixed-label">취득가액 관련 (현할차)</td><td><input class="tamt" type="number" step="1" value="0" placeholder="0"></td></tr>
-                      <tr data-tax-item="퇴직연금충당금"><td class="fixed-label">퇴직연금충당금</td><td><input class="tamt" type="number" step="1" value="0" placeholder="0"></td></tr>
-                      <tr data-tax-item="재고자산평가충당금"><td class="fixed-label">재고자산평가충당금</td><td><input class="tamt" type="number" step="1" value="0" placeholder="0"></td></tr>
-                      <tr class="total-row"><td class="fixed-label">합계</td><td><input id="tax-total" class="fixed-label" value="0원" readonly></td></tr>
-                    </tbody>
-                  </table>
-                </div>
+              <h4 class="input-section-title"><i>3</i>세무조정내역</h4>
+              <label for="tax_table">항목별 금액 입력 <span style="font-weight:400;color:var(--t3);font-size:12px">가산은 양수, 차감은 음수 (예: -3500000)</span></label>
+              <div class="table-scroll">
+                <table id="tax_table">
+                  <thead><tr><th>항목</th><th>금액 (원)</th></tr></thead>
+                  <tbody>
+                    <tr data-tax-item="감가상각비"><td class="fixed-label">감가상각비</td><td><input class="tamt" type="number" step="1" value="0" placeholder="0"></td></tr>
+                    <tr data-tax-item="퇴직급여충당금"><td class="fixed-label">퇴직급여충당금</td><td><input class="tamt" type="number" step="1" value="0" placeholder="0"></td></tr>
+                    <tr data-tax-item="대손충당금 (대손상각비)"><td class="fixed-label">대손충당금 (대손상각비)</td><td><input class="tamt" type="number" step="1" value="0" placeholder="0"></td></tr>
+                    <tr data-tax-item="귀속시기"><td class="fixed-label">귀속시기</td><td><input class="tamt" type="number" step="1" value="0" placeholder="0"></td></tr>
+                    <tr data-tax-item="취득가액 관련 (현할차)"><td class="fixed-label">취득가액 관련 (현할차)</td><td><input class="tamt" type="number" step="1" value="0" placeholder="0"></td></tr>
+                    <tr data-tax-item="퇴직연금충당금"><td class="fixed-label">퇴직연금충당금</td><td><input class="tamt" type="number" step="1" value="0" placeholder="0"></td></tr>
+                    <tr data-tax-item="재고자산평가충당금"><td class="fixed-label">재고자산평가충당금</td><td><input class="tamt" type="number" step="1" value="0" placeholder="0"></td></tr>
+                    <tr class="total-row"><td class="fixed-label">합계</td><td><input id="tax-total" value="0원" readonly></td></tr>
+                  </tbody>
+                </table>
               </div>
             </section>
 
             <section class="input-section">
-              <h4 class="input-section-title">4. 법인세 상당액</h4>
-              <label for="corporate_tax">법인세 상당액 (원)</label>
-              <input id="corporate_tax" type="number" value="0" min="0" placeholder="예: 0">
+              <h4 class="input-section-title"><i>4</i>법인세 상당액</h4>
+              <div class="basic-grid">
+                <div>
+                  <label for="corporate_tax">법인세 상당액 (원)</label>
+                  <input id="corporate_tax" type="number" value="0" min="0" placeholder="예: 0">
+                  <div class="hint">세후영업이익에서 차감됩니다.</div>
+                </div>
+              </div>
             </section>
 
-            <div style="margin-top:20px;display:flex;gap:10px;align-items:center">
+            <div class="btn-row">
               <button type="button" id="evaluate">확인</button>
-              <div class="hint">입력 내용을 확인한 뒤 결과 페이지로 이동합니다.</div>
+              <span class="hint">입력 내용을 확인한 뒤 결과 페이지로 이동합니다.</span>
             </div>
             <div id="form-error" class="form-error" role="alert" aria-live="polite"></div>
           </form>
-
         </div>
       </div>
 
-      <aside class="card">
-        <h3 style="margin-top:0">입력 가이드</h3>
-        <div class="hint">금액은 모두 원 단위 정수로 입력하세요.</div>
-        <ul style="margin-top:10px">
-          <li><strong>영업이익</strong>: 세무조정 <em>전</em> 금액입니다. 조정액은 3번에 따로 입력하세요.</li>
-          <li><strong>총매출</strong>: 해당 사업연도 전체 매출액</li>
-          <li><strong>특수관계자 세부매출</strong>: 거래처별 매출을 표에 입력합니다. 거래가 없으면 0으로 두세요. 거래처가 많으면 <strong>엑셀 업로드</strong>로 한 번에 채울 수 있습니다 — 양식을 받아 금액만 채우거나, 회계·ERP 파일을 그대로 올려도 됩니다.</li>
-          <li><strong>세무조정내역</strong>: 가산은 양수, 차감은 음수 (예: -3500000)</li>
-          <li><strong>법인세 상당액</strong>: 세후영업이익에서 차감됩니다.</li>
-        </ul>
-
-        <div style="margin-top:12px">
-          <div class="sample">세후영업이익 = 영업이익 ± 세무조정금액 − 법인세 상당액</div>
-        </div>
-
-        <hr style="margin:14px 0">
-        <div class="hint">법인·기업 구분과 지분 데이터는 서버에 보관된 값을 사용하며 화면에서 수정할 수 없습니다.</div>
-      </aside>
+      <div>
+        <p class="sec-t">입력 가이드</p>
+        <aside class="card">
+          <h3>입력 시 확인할 것</h3>
+          <div class="hint">금액은 모두 원 단위 정수로 입력하세요.</div>
+          <ul>
+            <li><strong>영업이익</strong> — 세무조정 <em>전</em> 금액입니다. 조정액은 3번에 따로 입력하세요.</li>
+            <li><strong>총매출</strong> — 해당 사업연도 전체 매출액</li>
+            <li><strong>특수관계자 세부매출</strong> — 거래처별 매출을 표에 입력합니다. 거래가 없으면 0으로 두세요. 거래처가 많으면 <strong>엑셀 업로드</strong>로 한 번에 채울 수 있습니다.</li>
+            <li><strong>세무조정내역</strong> — 가산은 양수, 차감은 음수 (예: -3500000)</li>
+            <li><strong>법인세 상당액</strong> — 세후영업이익에서 차감됩니다.</li>
+          </ul>
+          <div style="margin-top:14px">
+            <div class="sample">세후영업이익 = 영업이익 ± 세무조정금액 − 법인세 상당액</div>
+          </div>
+          <hr>
+          <div class="hint">법인·기업 구분과 지분 데이터는 서버에 보관된 값을 사용하며 화면에서 수정할 수 없습니다.</div>
+        </aside>
+      </div>
     </div>
 
+    <!-- ── 결과 ── -->
     <section id="result-page" class="result-page card" style="display:none">
       <div class="result-page-head">
         <div>
@@ -269,27 +385,28 @@
           <h2 style="margin-top:4px">증여세 검토 결과</h2>
         </div>
         <div class="result-actions">
-          <button type="button" id="excel-download">엑셀 다운로드</button>
-          <button type="button" id="pdf-download" style="background:#b02a37">PDF 다운로드</button>
+          <button type="button" id="excel-download" class="secondary">엑셀 다운로드</button>
+          <button type="button" id="pdf-download" class="secondary">PDF 다운로드</button>
           <button type="button" id="rawdata-button" style="display:none" class="secondary">RAWDATA 확인</button>
-          <button type="button" id="back-to-input" class="secondary">입력 수정</button>
+          <button type="button" id="back-to-input">입력 수정</button>
         </div>
       </div>
-      <div id="result" style="margin-top:22px;min-height:220px">결과가 여기에 표시됩니다.</div>
+      <div id="result">결과가 여기에 표시됩니다.</div>
       <div class="result-back-wrap"><button type="button" id="result-back-to-input" class="secondary">뒤로가기</button></div>
     </section>
 
+    <!-- ── RAWDATA ── -->
     <section id="rawdata-page" class="raw-page card" style="display:none">
       <div class="result-page-head">
         <div><div class="muted">관리자 전용</div><h2 style="margin-top:4px">RAWDATA 검토</h2></div>
         <button type="button" id="rawdata-back" class="secondary">결과로 돌아가기</button>
       </div>
-      <div id="rawdata-content" style="margin-top:22px"></div>
+      <div id="rawdata-content"></div>
     </section>
 
-    <footer>이 서비스는 데모용입니다. 민감한 원본 데이터는 서버에만 보관됩니다.</footer>
+    <p class="foot">이 서비스는 데모용입니다. 민감한 원본 데이터는 서버에만 보관됩니다.</p>
   </div>
 
-  <script src="/app.js?v=20260828-3"></script>
+  <script src="/app.js?v=20260831-1"></script>
 </body>
 </html>
