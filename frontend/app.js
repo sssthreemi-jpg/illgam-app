@@ -675,6 +675,8 @@ function renderReport(r, input){
       </tbody></table>
     </section>
 
+    ${(r.notices || []).length ? `<div class="report-notice"><strong>확인이 필요합니다</strong><ul>${r.notices.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ul></div>` : ''}
+
     <section class="report-section"><h3>2. 판정 요건 및 계산 결과</h3>
       <table class="report-table"><tbody>
         <tr><th>특수관계자 매출 합계</th><td class="amount">${formatNum(relatedTotal)}원</td></tr>

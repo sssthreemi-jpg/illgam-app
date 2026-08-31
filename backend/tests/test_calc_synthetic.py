@@ -28,7 +28,7 @@ COUNTERPARTY_HC = "지주자회사"   # ⑭2호 (지주회사 지분율 70% > �
 PUBLIC_FIELDS = {
     "company", "size", "taxable", "total_sales", "related_sales_total",
     "related_sales_ratio", "article10_total", "taxation_ratio",
-    "normal_ratio", "deemed_gift_total", "dividend_deduction_total",
+    "normal_ratio", "deemed_gift_total", "dividend_deduction_total", "notices",
     "gift_tax_total", "filing_credit_total", "gift_tax_payable_total",
     # 계산에 쓴 연도 이름표와 기준시점 문구. 지분 정보가 아니다.
     "year", "data_as_of",
@@ -613,3 +613,31 @@ def test_dividend_deduction_never_makes_the_base_negative(fixture_data):
             distributable_income=1)["shareholder_details"]:
         assert d["taxable_base"] >= 0
     assert r["gift_tax_total"] >= 0
+
+
+def test_notice_when_the_holding_company_distributable_income_is_missing(fixture_data, monkeypatch):
+    """지주회사 배당가능이익이 없으면 공제를 걸지 않고, 왜 안 걸렸는지 알려준다."""
+    calc = fixture_data
+    monkeypatch.setattr(calc.dataset(), "holding_distributable", 0)
+    r = _taxed_case(calc, dividend_income={"A": 50_000_000}, distributable_income=2_000_000_000)
+    assert r["dividend_deduction_total"] == 0
+    assert any("지주회사" in n for n in r["notices"])
+
+
+def test_notice_when_the_subject_distributable_income_is_missing(fixture_data):
+    """수혜법인 배당가능이익을 안 넣으면 공제를 걸지 않는다(분모가 작아져 과대계상된다)."""
+    r = _taxed_case(fixture_data, dividend_income={"A": 50_000_000})
+    assert r["dividend_deduction_total"] == 0
+    assert any("수혜법인" in n for n in r["notices"])
+
+
+def test_no_notice_without_dividend_input(fixture_data):
+    """배당소득을 안 넣었으면 안내할 것도 없다."""
+    assert _taxed_case(fixture_data)["notices"] == []
+
+
+def test_no_notice_when_the_deduction_actually_applies(fixture_data):
+    r = _taxed_case(fixture_data, dividend_income={"A": 50_000_000},
+                    distributable_income=2_000_000_000)
+    assert r["dividend_deduction_total"] > 0
+    assert r["notices"] == []

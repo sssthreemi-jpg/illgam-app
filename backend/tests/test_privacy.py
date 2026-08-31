@@ -18,6 +18,7 @@ def test_privacy_fields():
         "article10_total",
         "taxation_ratio",
         "dividend_deduction_total",
+        "notices",
         "filing_credit_total",
         "gift_tax_payable_total",
         "normal_ratio",

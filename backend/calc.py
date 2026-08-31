@@ -454,9 +454,10 @@ def _dividend_deduction(company, code, deemed, distributable_income, dividend_in
     dividend = float((dividend_income or {}).get(code, 0) or 0)
     if dividend <= 0 or deemed <= 0:
         return 0.0
-    if ds.holding_distributable <= 0:
-        # 지주회사 배당가능이익이 없으면 계산하지 않는다. 0 으로 두고 계산하면 분모가
-        # 작아져 공제가 과대계상되고, 그만큼 세액이 조용히 줄어든다.
+    # 배당가능이익 두 개는 모두 분모에 있다. 하나라도 비어 있는 채로 계산하면 분모가
+    # 작아져 공제가 과대계상되고, 그만큼 세액이 조용히 줄어든다. 그래서 아예 계산하지
+    # 않고(=공제 0, 세액이 큰 쪽) 호출부가 사유를 안내하게 둔다.
+    if ds.holding_distributable <= 0 or float(distributable_income or 0) <= 0:
         return 0.0
     company_ratio = ds.holding_ratio.get(company, 0.0)
     direct = ds.holding_direct.get(code, 0.0)
@@ -541,6 +542,8 @@ def evaluate(company, operating_income, corporate_tax, total_sales,
         # 배당소득 공제(간접출자 배당 이중과세 조정)와 신고세액공제(3%).
         # gift_tax_total 은 종전대로 **산출세액**이고, 실제 납부액은 gift_tax_payable_total 이다.
         "dividend_deduction_total": round(deduction_total),
+        # 계산은 됐지만 사용자가 알아야 하는 사정. 민감 정보는 담지 않는다.
+        "notices": _dividend_notices(dividend_income, distributable_income, ds),
         "gift_tax_total": tax_total,
         "filing_credit_total": credit_total,
         "gift_tax_payable_total": payable_total,
@@ -550,6 +553,25 @@ def evaluate(company, operating_income, corporate_tax, total_sales,
         # ⑭ 지분율 상당액 건은 None 이다. 합계도 내보내지 않는다(_ratio_exclusion_totals 주석 참조).
         "exclusion_details": [_public_detail(d) for d in details],
     }
+
+
+def _dividend_notices(dividend_income, distributable_income, ds):
+    """배당소득을 넣었는데 공제가 안 붙는 경우 그 사유를 문장으로 돌려준다.
+
+    조용히 0 으로 두면 '왜 공제가 없지' 를 화면에서 알 길이 없다. 세액이 커지는
+    방향이라 위험하지는 않지만, 입력이 빠진 것인지 원래 없는 것인지는 구분돼야 한다.
+    """
+    if not any(v for v in (dividend_income or {}).values()):
+        return []
+    notices = []
+    if ds.holding_distributable <= 0:
+        notices.append(
+            "지주회사의 연도말 배당가능이익이 데이터에 없어 배당소득 공제를 적용하지 않았습니다. "
+            f"({ds.year}년 데이터의 holding_company.json 에 '배당가능이익' 을 채우면 반영됩니다.)")
+    if float(distributable_income or 0) <= 0:
+        notices.append(
+            "수혜법인의 연도말 배당가능이익을 입력하지 않아 배당소득 공제를 적용하지 않았습니다.")
+    return notices
 
 
 def _normal_ratio(size, related_sales_total, ds=None):
