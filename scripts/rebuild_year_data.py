@@ -11,6 +11,9 @@
   - `section18_indirect_investors.json` : 세무 검토로 확정해 등재하는 값.
   이 세 개는 별도로 백업해 둘 것.
 
+재생성 전에 `3.지배주주지분율 요약` 이 `1.직접지분율` 과 맞는지 검증한다. 요약만 낡은
+파일이 실제로 있었고(26.06말 260730), 그대로 쓰면 시지바이오 지분이 0% 가 된다.
+
 사용법 (기본은 미리보기, 실제로 덮어쓰려면 --write):
 
     python scripts/rebuild_year_data.py --year 2025 \
@@ -49,6 +52,16 @@ ALIAS = {"엠베이스": "시지엠베이스"}
 
 ROUND = 10  # 기존 JSON 과 같은 자릿수
 
+# --- `3.지배주주지분율 요약` 검증 문턱 ------------------------------------------
+# 요약 시트는 `1.직접지분율` 을 체인으로 전개한 결과여야 한다. 그런데 요약만 낡은 채로
+# 오는 파일이 있다 — `26.06말 ..._260730.xlsx` 는 제목이 2025.12.31 이고 시지 계열 등
+# 10개 법인의 합계가 0% 다. 그대로 재생성하면 시지바이오 지분이 80.5% → 0% 가 되어
+# 증여세가 조용히 0 이 된다. 그래서 직접 계산해 대조하고, 심하면 멈춘다.
+MATCH_TOL = 0.001             # 0.1%p 이내면 같은 값으로 본다(반올림·자기주식 처리 차이).
+ZERO_FATAL = 0.01             # 요약은 0 인데 체인은 1%p 이상 — 계산이 누락된 것이다.
+MISMATCH_FATAL_RATIO = 0.25   # 요약의 1/4 넘게 어긋나면 시트 자체를 믿을 수 없다.
+CHAIN_ROUNDS = 200            # 체인 전개 반복 상한(보통 5~6회면 수렴한다).
+
 
 def norm(v):
     if not isinstance(v, str):
@@ -57,12 +70,16 @@ def norm(v):
     return ALIAS.get(v, v) or None
 
 
-def read_shareholders(ws, allowed):
-    """{법인: {A..C12, sum}} — 코드별 '합계' 열을 그대로 읽는다."""
+def read_shareholders(ws, allowed=None):
+    """{법인: {A..C12, sum}} — 코드별 '합계' 열을 그대로 읽는다.
+
+    allowed 를 주면 그 법인만 남긴다. None 이면 시트에 있는 대로 전부 읽는다
+    (요약 시트 검증은 법인 목록 밖 법인까지 봐야 해서 필터 없이 읽는다).
+    """
     out = {}
     for row in ws.iter_rows(min_row=4, values_only=True):
         name = norm(row[NAME_COL] if len(row) > NAME_COL else None)
-        if not name or name not in allowed:
+        if not name or (allowed is not None and name not in allowed):
             continue
         vals = {}
         for code in CODES:
@@ -81,20 +98,107 @@ def read_shareholders(ws, allowed):
     return out
 
 
-def read_intercompany(ws, order):
-    """{출자법인: {피출자법인: 지분율}} — 개인 코드 행은 법인 목록 필터에서 걸러진다."""
-    allowed = set(order)
-    out = {c: {} for c in order}
+def read_direct(ws):
+    """`1.직접지분율` 원시 행 (출자, 피출자, 지분율). 필터를 걸지 않는다.
+
+    체인 계산에는 개인 코드(A·C11 …) 행과 법인 목록 밖 중간 지주사도 필요해서,
+    거르는 일은 이 함수를 쓰는 쪽에서 한다.
+    """
+    rows = []
     for row in ws.iter_rows(min_row=2, values_only=True):
         owner = norm(row[OWNER_COL] if len(row) > OWNER_COL else None)
         target = norm(row[TARGET_COL] if len(row) > TARGET_COL else None)
         ratio = row[RATIO_COL] if len(row) > RATIO_COL else None
         if not owner or not target or not isinstance(ratio, (int, float)):
             continue
+        rows.append((owner, target, float(ratio)))
+    return rows
+
+
+def read_intercompany(direct_rows, order):
+    """{출자법인: {피출자법인: 지분율}} — 개인 코드 행은 법인 목록 필터에서 걸러진다."""
+    allowed = set(order)
+    out = {c: {} for c in order}
+    for owner, target, ratio in direct_rows:
         if owner not in allowed or target not in allowed:
             continue
-        out[owner][target] = round(float(ratio), ROUND)
+        out[owner][target] = round(ratio, ROUND)
     return out
+
+
+def direct_graph(direct_rows):
+    """{출자자: {피출자: 지분율}} — 개인 코드까지 포함한 전체 그래프."""
+    edges = {}
+    for owner, target, ratio in direct_rows:
+        edges.setdefault(owner, {})
+        edges[owner][target] = edges[owner].get(target, 0.0) + ratio
+    return edges
+
+
+def chain_holdings(edges, codes=CODES):
+    """지배주주별 직·간접 지분율을 직접지분율 그래프에서 전개한다.
+
+    hold[p][c] = 직접(p→c) + Σ_o 지분율(o→c) × hold[p][o]
+    순환출자가 있어도 값이 수렴하도록 반복해서 푼다.
+    """
+    hold = {p: {} for p in codes}
+    for _ in range(CHAIN_ROUNDS):
+        moved = 0.0
+        for p in codes:
+            new = dict(edges.get(p, {}))
+            for owner, targets in edges.items():
+                if owner in codes:
+                    continue
+                share = hold[p].get(owner, 0.0)
+                if not share:
+                    continue
+                for target, ratio in targets.items():
+                    new[target] = new.get(target, 0.0) + ratio * share
+            for k in set(new) | set(hold[p]):
+                moved = max(moved, abs(new.get(k, 0.0) - hold[p].get(k, 0.0)))
+            hold[p] = new
+        if moved < 1e-15:
+            break
+    return hold
+
+
+def summary_vs_direct(summary, hold):
+    """요약 시트와 체인계산이 어긋나는 법인 목록 [(법인, 요약합계, 체인합계, 최대차)]."""
+    out = []
+    for co in sorted(summary):
+        vals = summary[co]
+        calc = {c: hold[c].get(co, 0.0) for c in CODES}
+        worst = max(abs(calc[c] - vals[c]) for c in CODES)
+        if worst > MATCH_TOL:
+            out.append((co, sum(vals[c] for c in CODES), sum(calc.values()), worst))
+    return out
+
+
+def report_summary_check(summary, mismatches):
+    """검증 결과를 찍고, 이대로 쓰면 안 되는 파일인지(True) 알려준다."""
+    if not summary:
+        print(f"[검증] `{SHEET_SUMMARY}` 에서 읽은 법인이 없습니다.")
+        return True
+    if not mismatches:
+        print(f"요약 시트 검증: {len(summary)}개 법인 모두 "
+              f"`{SHEET_DIRECT}` 체인계산과 일치합니다.")
+        return False
+
+    zeroed = [m for m in mismatches if abs(m[1]) < 1e-12 and m[2] >= ZERO_FATAL]
+    ratio = len(mismatches) / len(summary)
+    print(f"[검증] `{SHEET_SUMMARY}` 가 `{SHEET_DIRECT}` 체인계산과 어긋납니다 "
+          f"— {len(summary)}개 중 {len(mismatches)}개 ({ratio:.0%})")
+    for co, sheet_sum, calc_sum, _ in mismatches[:20]:
+        print(f"      {co:<16} 요약 {sheet_sum * 100:7.3f}%"
+              f"   직접지분율 체인 {calc_sum * 100:7.3f}%")
+    if len(mismatches) > 20:
+        print(f"      … 외 {len(mismatches) - 20}개")
+    if zeroed:
+        names = ", ".join(m[0] for m in zeroed)
+        print(f"\n  → 요약은 0% 인데 실제로는 지분이 있는 법인 {len(zeroed)}개: {names}")
+        print("     요약 시트의 계산이 누락된 것입니다. "
+              "이대로 쓰면 이 법인들의 증여세가 조용히 0 이 됩니다.")
+    return bool(zeroed) or ratio > MISMATCH_FATAL_RATIO
 
 
 def dump(path, obj):
@@ -132,6 +236,8 @@ def main():
                    help="기본값: <repo>/backend/data/<연도>")
     p.add_argument("--write", action="store_true",
                    help="실제로 덮어쓴다. 없으면 미리보기만 한다.")
+    p.add_argument("--skip-summary-check", action="store_true",
+                   help="요약 시트 검증을 건너뛴다. 검증이 왜 걸렸는지 알고 있을 때만 쓸 것.")
     args = p.parse_args()
 
     out_dir = args.data_dir or os.path.join(REPO, "backend", "data", args.year)
@@ -156,10 +262,30 @@ def main():
         if sheet not in wb.sheetnames:
             sys.exit(f"엑셀에 `{sheet}` 시트가 없습니다: {wb.sheetnames}")
 
-    shareholders = read_shareholders(wb[SHEET_SUMMARY], allowed)
+    # 요약 시트는 두 번 읽지 않는다(read_only 워크시트라 재순회가 비싸다).
+    # 검증에는 법인 목록 밖 법인도 필요해서 필터 없이 한 번 읽고 나중에 거른다.
+    summary = read_shareholders(wb[SHEET_SUMMARY], allowed=None)
+    direct_rows = read_direct(wb[SHEET_DIRECT])
+
+    if args.skip_summary_check:
+        print()
+        print("[주의] --skip-summary-check: 요약 시트 검증을 건너뜁니다.")
+    else:
+        print()
+        fatal = report_summary_check(
+            summary, summary_vs_direct(summary, chain_holdings(direct_graph(direct_rows))))
+        if fatal:
+            print()
+            print(f"`{SHEET_SUMMARY}` 시트를 그대로 쓸 수 없어 멈춥니다.")
+            print(f"이 시트가 아니라 `{SHEET_DIRECT}` 이 정본입니다. "
+                  "요약이 갱신된 파일을 받거나,")
+            print("직접지분율 체인계산 값으로 대신할지 판단한 뒤 "
+                  "--skip-summary-check 로 다시 실행하세요.")
+            sys.exit(1)
+
     # 엑셀 행 순서가 아니라 정본 목록 순서로 맞춘다.
-    shareholders = {c: shareholders[c] for c in order if c in shareholders}
-    intercompany = read_intercompany(wb[SHEET_DIRECT], order)
+    shareholders = {c: summary[c] for c in order if c in summary}
+    intercompany = read_intercompany(direct_rows, order)
 
     missing = sorted(allowed - set(shareholders))
     if missing:
