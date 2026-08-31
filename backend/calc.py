@@ -15,6 +15,9 @@ DATA_FILES = (
     "section18_indirect_investors.json",
 )
 
+# 특수관계법인 매출액이 이 금액 **이상**인 일반기업은 정상거래비율이 20% 로 내려간다.
+# 문턱은 '초과'가 아니라 '이상'이다 — 검토 실무자료의 "1천억원 이상" 을 따른다.
+# 다른 문턱(정상거래비율·한계보유비율)이 전부 '초과'라 한동안 여기도 '초과'로 두었었다.
 GENERAL_RELATED_SALES_THRESHOLD = 100_000_000_000
 GENERAL_HIGH_RELATED_RATIO = 0.2
 
@@ -412,7 +415,7 @@ def evaluate(company, operating_income, corporate_tax, total_sales,
 
 def _normal_ratio(size, related_sales_total, ds=None):
     ds = ds or dataset()
-    if size == "일반" and related_sales_total > GENERAL_RELATED_SALES_THRESHOLD:
+    if size == "일반" and related_sales_total >= GENERAL_RELATED_SALES_THRESHOLD:
         return GENERAL_HIGH_RELATED_RATIO
     return ds.normal[size]
 

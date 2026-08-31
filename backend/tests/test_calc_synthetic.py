@@ -316,10 +316,11 @@ def test_general_company_over_100_billion_uses_20_percent_ratio(fixture_data):
     assert r["normal_ratio"] == 0.2
 
 
-def test_general_company_at_100_billion_keeps_default_ratio(fixture_data):
+def test_general_company_exactly_at_100_billion_uses_20_percent_ratio(fixture_data):
+    """문턱은 '1천억원 이상'이라 정확히 1천억이어도 20% 다."""
     r = fixture_data.evaluate(SUBJECT, 1_000_000, 0, 200_000_000_000,
                               {COUNTERPARTY_NONE: 100_000_000_000})
-    assert r["normal_ratio"] == 0.3
+    assert r["normal_ratio"] == 0.2
 
 
 def test_company_list_ends_with_catch_all(fixture_data):

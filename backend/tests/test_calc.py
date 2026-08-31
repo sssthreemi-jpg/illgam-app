@@ -32,10 +32,11 @@ def test_general_company_over_100_billion_uses_20_percent_ratio():
     assert r["size"] == "일반"
     assert r["normal_ratio"] == 0.2
 
-def test_general_company_at_100_billion_keeps_default_ratio():
+def test_general_company_exactly_at_100_billion_uses_20_percent_ratio():
+    """문턱은 '1천억원 이상'이라 정확히 1천억이어도 20% 다."""
     r = evaluate("대웅바이오", 1_000_000, 0, 200_000_000_000,
                  {"대웅제약": 100_000_000_000})
-    assert r["normal_ratio"] == 0.3
+    assert r["normal_ratio"] == 0.2
 
 def test_tax_adjustments_are_added_to_operating_income():
     """세후영업이익 = 영업이익 ± 세무조정금액 - 법인세 상당액.
