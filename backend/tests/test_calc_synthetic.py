@@ -114,10 +114,15 @@ def test_gift_tax_brackets(fixture_data, base, expected):
 # 가나전자(일반, 공제거래비율 5%, 공제보유비율 0%), 총매출 100억, 세후영업이익 100억,
 # 특관매출 90억(자차산업 — 과세제외 사유 없음) 기준 손계산값.
 #   조정 후 특관비율 0.9, 초과분 0.85
-#   증여의제이익 = 100억 × 0.85 × 지분율
+#   증여의제이익 = 100억 × 0.85 × (과세대상 주주 지분율 합)
+#
+# 과세대상 주주는 요건③ 으로 걸러진다 — 한계보유비율(일반 3%)을 **개인별로** 초과한
+# A(20%)·C(10%)·D(5%) 만 남고 C1(2%)·C11(1%)·C12(0.5%) 는 빠진다. 지분율 합 0.385
+# 에서 0.035 가 빠져 0.35 이므로 100억 × 0.85 × 0.35 = 29.75억.
+# 요건③ 도입 전 값은 3,272,500,000(=0.385 전체) 이었다.
 _PIPELINE_ARGS = (SUBJECT, 10_000_000_000, 0, 10_000_000_000, {COUNTERPARTY_NONE: 9_000_000_000})
-_EXPECTED_DEEMED = 3_272_500_000
-_EXPECTED_TAX = 826_750_000
+_EXPECTED_DEEMED = 2_975_000_000
+_EXPECTED_TAX = 790_000_000   # 요건③ 도입 전 826,750,000
 
 
 def test_pipeline_totals(fixture_data):
@@ -177,18 +182,20 @@ def test_just_over_normal_ratio_is_taxable(fixture_data):
 # 보유비율에도 비율이 두 개다. 한계보유비율(일반 3%, 중견·중소 10%)은 과세대상인지
 # 가르는 문턱이고, 공제보유비율(일반 0%, 중견 5%, 중소 10%)은 계산식에서 빼는 값이다.
 # 정상거래비율에서 한 번 겪은 함정을 보유비율 쪽에서 그대로 반복해, 요건③ 이 통째로
-# 빠져 있었다. 문턱은 개인별이 아니라 **지배주주와 그 친족의 합계**로 본다.
+# 빠져 있었다. 문턱은 합계가 아니라 **개인별**로 본다 — 한계보유비율을 넘긴 주주만
+# 과세대상이다. 위 _PIPELINE_ARGS 의 가나전자가 이 구조를 그대로 보여준다(A·C·D 만
+# 남고 C1·C11·C12 는 빠진다).
 #
 # 중소는 공제보유비율(10%)이 한계보유비율(10%)과 같아 우연히 맞았고, 일반·중견만
 # 드러난다. 그래서 두 규모를 모두 세워 둔다.
 
-GATE_GENERAL = "요건삼일반"   # 일반, 합계 2% <= 3%
-GATE_MIDSIZE = "요건삼중견"   # 중견, 합계 8% <= 10%
-GATE_ABOVE = "요건삼경계"     # 일반, 합계 4% > 3% (대조군)
+GATE_GENERAL = "요건삼일반"   # 일반, A 2% <= 3%
+GATE_MIDSIZE = "요건삼중견"   # 중견, A 8% <= 10%
+GATE_ABOVE = "요건삼경계"     # 일반, A 4% > 3% (대조군)
 
 
-def test_holdings_sum_at_or_below_limit_is_not_taxable_general(fixture_data):
-    """일반 합계 2% <= 3% → 거래비율을 넘겨도 과세대상이 아니다."""
+def test_holding_at_or_below_limit_is_not_taxable_general(fixture_data):
+    """일반 A 2% <= 3% → 거래비율을 넘겨도 과세대상이 아니다."""
     r = fixture_data.evaluate(GATE_GENERAL, 50_000_000_000, 0, 100_000_000_000,
                               {COUNTERPARTY_NONE: 90_000_000_000})
     assert r["size"] == "일반"
@@ -198,8 +205,8 @@ def test_holdings_sum_at_or_below_limit_is_not_taxable_general(fixture_data):
     assert r["taxable"] is False
 
 
-def test_holdings_sum_at_or_below_limit_is_not_taxable_midsize(fixture_data):
-    """중견 합계 8% <= 10% → 개인이 공제보유비율(5%)을 넘어도 과세하지 않는다.
+def test_holding_at_or_below_limit_is_not_taxable_midsize(fixture_data):
+    """중견 A 8% <= 10% → 공제보유비율(5%)은 넘지만 한계보유비율은 못 넘는다.
 
     게이트가 없으면 (8% - 5%) > 0 이라 세액이 생기던 조합이다.
     """
@@ -210,8 +217,8 @@ def test_holdings_sum_at_or_below_limit_is_not_taxable_midsize(fixture_data):
     assert r["taxable"] is False
 
 
-def test_holdings_sum_above_limit_stays_taxable(fixture_data):
-    """합계 4% > 3% → 문턱이 과하게 막지 않는다(대조군)."""
+def test_holding_above_limit_stays_taxable(fixture_data):
+    """A 4% > 3% → 문턱이 과하게 막지 않는다(대조군)."""
     r = fixture_data.evaluate(GATE_ABOVE, 50_000_000_000, 0, 100_000_000_000,
                               {COUNTERPARTY_NONE: 90_000_000_000})
     assert r["taxable"] is True
