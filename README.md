@@ -95,6 +95,33 @@ backend/data/
 **쿼리스트링**으로, `/api/evaluate` 와 `/api/admin/evaluate-review` 에서는 **요청 본문**으로 받습니다.
 어느 쪽이든 생략하면 기본 연도입니다.
 
+### 데이터 백업과 복구
+
+`backend/data/` 는 기밀이라 **git 에 없습니다.** 이 PC 에서 사라지면 저장소만으로는 복구되지
+않으므로, 5개 파일 중 어디까지 되살릴 수 있는지 알아두어야 합니다.
+
+| 파일 | 복구 방법 |
+| --- | --- |
+| `shareholder_holdings.json` | 지분율 엑셀에서 **재생성 가능** (아래 스크립트) |
+| `intercompany_holdings.json` | 지분율 엑셀에서 **재생성 가능** (아래 스크립트) |
+| `company_sizes.json` | **백업 필요.** 기업분류 엑셀이 연도별로 다르고 손으로 고친 값이 섞여 있습니다. |
+| `params.json` | **백업 필요.** 세율·비율을 직접 관리합니다. |
+| `section18_indirect_investors.json` | **백업 필요.** 세무 검토로 확정해 등재합니다. |
+
+```powershell
+# 미리보기(기본). 기존 파일과 무엇이 달라지는지만 보여준다.
+python scripts\rebuild_year_data.py --year 2025 --holdings "...\25.12말 기준 일감 증여세 (지분율).xlsx"
+
+# 실제로 덮어쓴다.
+python scripts\rebuild_year_data.py --year 2025 --holdings "..." --write
+```
+
+스크립트는 같은 폴더의 `company_sizes.json` 을 **법인 목록의 정본**으로 읽습니다. 그래서
+`company_sizes.json` 이 먼저 있어야 나머지 두 개를 만들 수 있습니다 — 백업에서 가장 중요한 파일입니다.
+
+기본이 미리보기인 이유는 **손으로 고친 값이 조용히 덮이는 것을 막기 위해서**입니다
+(예: 2026 대웅인베스트먼트를 중견 → 일반으로 보정한 이력).
+
 ### 구현 메모: 왜 전역을 갈아끼우지 않는가
 
 `backend/calc.py` 는 연도별 데이터를 `Dataset` 객체로 만들어 기동 시 **전부 메모리에 올려두고**,
