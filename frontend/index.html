@@ -141,6 +141,7 @@
   .report-notice{margin:0 0 14px;padding:12px 14px;border-radius:10px;background:var(--warn-s,#FFF7E6);
     border:1px solid var(--warn-bd,#F2D9A8);color:var(--t2);font-size:13px;line-height:1.6}
   .report-notice strong{display:block;margin-bottom:4px;color:var(--t1)}
+  .report-notice b{font-weight:700;color:var(--t1)}
   .report-notice ul{margin:0;padding-left:18px}
   .import-report h5{margin:0 0 8px;font-size:13.5px;font-weight:700;color:var(--dw-d)}
   .import-report .import-warn{margin-top:8px;padding:9px 12px;color:var(--dw-d);background:var(--dw-s);
@@ -175,6 +176,109 @@
     color:var(--dw-d);font-size:12.5px;line-height:1.55;word-break:keep-all}
 
   .foot{margin-top:22px;padding:16px 4px;color:var(--t3);font-size:12px;text-align:center}
+
+  /* ── 페이지 내비 ── */
+  /* 페이지가 8개가 되면서 style.display 를 곳곳에서 만지던 방식을 showPage() 하나로 모았다.
+     display 값을 지우지 않도록 [hidden] 로 감춘다 — #input-page 는 grid 라 'block' 으로
+     되돌리면 사이드 가이드가 아래로 떨어진다. */
+  .nav{display:flex;gap:4px;flex-wrap:wrap;margin-left:auto;align-items:center}
+  .nav button{background:transparent;border:1px solid transparent;color:var(--t2);
+    padding:7px 12px;min-height:34px;font-size:13px;font-weight:500;border-radius:8px}
+  .nav button[aria-current="page"]{background:var(--dw-s);border-color:var(--dw-bd);
+    color:var(--dw-d);font-weight:700}
+  .nav button[disabled]{color:var(--t3);cursor:not-allowed;opacity:.55}
+  @media(hover:hover) and (pointer:fine){
+    .nav button:hover:not([disabled]){background:var(--soft);border-color:var(--bd);color:var(--t1)}
+    .nav button[aria-current="page"]:hover{background:var(--dw-s);border-color:var(--dw-bd);color:var(--dw-d)}
+  }
+  @media(max-width:900px){ .top-in{height:auto;padding-top:10px;padding-bottom:10px;flex-wrap:wrap}
+    .nav{margin-left:0;width:100%;order:9} .top-r{display:none} }
+
+  .page-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;
+    padding-bottom:18px;border-bottom:1px solid var(--bd2);margin-bottom:22px}
+  .page-head h2{margin-top:4px}
+  .empty{padding:44px 20px;text-align:center;color:var(--t3);font-size:13.5px;line-height:1.7}
+
+  /* ── 요약 타일 ── */
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+  .tile{border:1px solid var(--bd);border-radius:10px;padding:14px 16px;background:var(--soft)}
+  .tile-label{font-size:11.5px;font-weight:700;color:var(--t3);letter-spacing:.3px}
+  .tile-value{margin-top:6px;font-size:23px;font-weight:700;letter-spacing:-.6px;line-height:1.2;
+    font-variant-numeric:tabular-nums}
+  .tile-sub{margin-top:3px;font-size:12px;color:var(--t3)}
+  .tile.bad .tile-value{color:var(--bad)}
+  .tile.ok .tile-value{color:var(--ok)}
+
+  /* ── 문턱 미터 ──
+     판정비율 하나를 정상거래비율(문턱)과 견주는 그림이다. 축이 하나뿐이고,
+     막대 색은 상태(과세/해당없음)만 나타내며 수치는 항상 글자로 함께 적는다. */
+  .meter{min-width:190px}
+  .meter-track{position:relative;height:8px;border-radius:999px;background:var(--bd2);overflow:hidden}
+  .meter-fill{height:100%;border-radius:999px;background:var(--ok);transition:width .18s}
+  .meter.over .meter-fill{background:var(--bad)}
+  .meter-thr{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--dw);border-radius:2px;
+    box-shadow:0 0 0 1.5px #fff}
+  .meter-track.has-thr{overflow:visible}
+  .meter-legend{display:flex;justify-content:space-between;gap:10px;margin-top:6px;
+    font-size:11.5px;color:var(--t3);font-variant-numeric:tabular-nums}
+  .meter-legend b{color:var(--t1);font-weight:700}
+  .meter-legend .thr-key::before{content:'';display:inline-block;width:2px;height:9px;
+    background:var(--dw);margin-right:5px;vertical-align:-1px;border-radius:2px}
+
+  /* ── 요건 카드 ── */
+  .criteria-list{display:grid;gap:10px}
+  .crit{display:flex;gap:13px;align-items:flex-start;padding:15px 17px;border:1px solid var(--bd);
+    border-radius:10px;background:#fff}
+  .crit.pass{border-color:#CFEBDF;background:var(--ok-s)}
+  .crit.fail{border-color:var(--bd);background:var(--soft)}
+  .crit-mark{flex:none;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;
+    justify-content:center;font-size:12px;font-weight:700;color:#fff;background:var(--t3)}
+  .crit.pass .crit-mark{background:var(--ok)}
+  .crit-body{min-width:0;flex:1}
+  .crit-label{font-size:13.5px;font-weight:700}
+  .crit-detail{margin-top:3px;font-size:12.5px;color:var(--t2);line-height:1.6}
+  .crit-state{margin-left:auto;flex:none;font-size:11.5px;font-weight:700;padding:3px 9px;
+    border-radius:999px;background:var(--bd2);color:var(--t2)}
+  .crit.pass .crit-state{background:var(--ok);color:#fff}
+  .crit-meter{margin-top:11px}
+
+  /* ── 시뮬레이션 ── */
+  .sim-grid{display:grid;grid-template-columns:minmax(0,340px) minmax(0,1fr);gap:22px;align-items:start}
+  .sim-field{margin-bottom:15px}
+  .sim-field .hint{margin-top:4px}
+  .sim-row{display:flex;gap:8px;align-items:center}
+  /* 전역 input 규칙의 appearance:none 이 슬라이더 트랙까지 지워 손잡이만 남는다.
+     range 에서는 되돌려야 한다. */
+  .sim-row input[type=range]{flex:1;min-height:0;height:22px;padding:0;border:0;background:transparent;
+    accent-color:var(--dw);-webkit-appearance:auto;appearance:auto;cursor:pointer}
+  .sim-delta{font-size:12.5px;font-weight:700;font-variant-numeric:tabular-nums}
+  .sim-delta.up{color:var(--bad)} .sim-delta.down{color:var(--ok)} .sim-delta.same{color:var(--t3)}
+  .hero{padding:20px 22px;border:1px solid var(--bd);border-radius:12px;background:var(--soft)}
+  .hero-label{font-size:12px;font-weight:700;color:var(--t3)}
+  .hero-value{margin-top:5px;font-size:31px;font-weight:700;letter-spacing:-1px;line-height:1.15;
+    font-variant-numeric:tabular-nums}
+  @media(max-width:900px){ .sim-grid{grid-template-columns:1fr} }
+
+  /* ── 통합 판정 / 대시보드 표 ── */
+  .wide-table{width:100%;border-collapse:collapse;border:1px solid var(--bd);border-radius:10px;
+    overflow:hidden;background:#fff;font-size:13px}
+  .wide-table th,.wide-table td{padding:9px 11px;border-bottom:1px solid var(--bd2);text-align:left;
+    vertical-align:middle}
+  .wide-table thead th{background:#F5F6F7;color:var(--t2);font-weight:700;font-size:12px;
+    white-space:nowrap;position:sticky;top:0;z-index:1}
+  .wide-table td.amount,.wide-table th.amount{text-align:right;font-variant-numeric:tabular-nums;
+    white-space:nowrap}
+  .wide-table tbody tr:last-child td{border-bottom:0}
+  .wide-table tfoot td{background:var(--soft);font-weight:700;border-top:1px solid var(--bd)}
+  .wide-table input{min-height:32px;padding:5px 8px;font-size:12.5px;text-align:right;border-radius:6px}
+  .wide-table .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11.5px;font-weight:700}
+  .tag{white-space:nowrap}
+  .tag.ok{background:var(--ok-s);color:var(--ok)}
+  .tag.bad{background:var(--bad-s);color:var(--bad)}
+  .tag.warn{background:var(--warn-s,#FFF7E6);color:var(--warn,#B4690E)}
+  .tag.mute{background:var(--bd2);color:var(--t2)}
+  .table-wrap{max-height:560px;overflow:auto;border-radius:10px}
+  .row-note{font-size:11.5px;color:var(--t3);margin-top:2px;line-height:1.5}
 
   /* ── 로그인 ── */
   .login-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
@@ -217,7 +321,7 @@
   @media print{
     body{background:#fff}
     .top{position:static}
-    .top-r,.result-actions,.result-back-wrap,#input-page{display:none}
+    .top-r,.result-actions,.result-back-wrap,#input-page,.nav{display:none}
     .card{border-color:#D5D9DE;break-inside:avoid}
     aside.card{display:none}
   }
@@ -251,13 +355,23 @@
     <span class="ttl">일감몰아주기 <em>증여세 검토</em></span>
     <span class="pill acc" id="mycompany"></span>
     <span class="pill" id="hint"></span>
+    <nav class="nav" id="nav" aria-label="페이지" hidden>
+      <button type="button" data-page="input-page">입력</button>
+      <button type="button" data-page="result-page" data-needs="result">결과</button>
+      <button type="button" data-page="criteria-page" data-needs="result">판정 근거</button>
+      <button type="button" data-page="simulate-page" data-needs="result">시뮬레이션</button>
+      <button type="button" data-page="compare-page" data-needs="result">연도 비교</button>
+      <button type="button" data-page="bulk-page" data-admin>통합 판정</button>
+      <button type="button" data-page="dashboard-page" data-admin>대시보드</button>
+      <button type="button" data-page="rawdata-page" data-admin data-needs="result">RAWDATA</button>
+    </nav>
     <span class="top-r"><span>금액은 원 단위 정수</span></span>
   </div></div>
 
   <div class="wrap">
 
     <!-- ── 입력 ── -->
-    <div id="input-page" class="content">
+    <div id="input-page" class="page content">
       <div>
         <p class="sec-t">검토 자료 입력</p>
         <div id="app" class="card" style="display:none">
@@ -400,7 +514,7 @@
     </div>
 
     <!-- ── 결과 ── -->
-    <section id="result-page" class="result-page card" style="display:none">
+    <section id="result-page" class="page result-page card" hidden>
       <div class="result-page-head">
         <div>
           <div class="muted">검토 결과</div>
@@ -418,7 +532,7 @@
     </section>
 
     <!-- ── RAWDATA ── -->
-    <section id="rawdata-page" class="raw-page card" style="display:none">
+    <section id="rawdata-page" class="page raw-page card" hidden>
       <div class="result-page-head">
         <div><div class="muted">관리자 전용</div><h2 style="margin-top:4px">RAWDATA 검토</h2></div>
         <button type="button" id="rawdata-back" class="secondary">결과로 돌아가기</button>
@@ -426,9 +540,79 @@
       <div id="rawdata-content"></div>
     </section>
 
+    <!-- ── 과세요건 판정 근거 ── -->
+    <section id="criteria-page" class="page card" hidden>
+      <div class="page-head">
+        <div>
+          <div class="muted">검토 결과 · 판정 근거</div>
+          <h2>왜 이렇게 판정됐는지</h2>
+        </div>
+        <button type="button" class="secondary" data-goto="result-page">결과로 돌아가기</button>
+      </div>
+      <div id="criteria-content"></div>
+    </section>
+
+    <!-- ── 시뮬레이션 ── -->
+    <section id="simulate-page" class="page card" hidden>
+      <div class="page-head">
+        <div>
+          <div class="muted">What-if</div>
+          <h2>시뮬레이션</h2>
+          <div class="hint">검토에 쓴 입력값을 그대로 가져와 조정합니다. <strong>실제 데이터는 바뀌지 않습니다.</strong></div>
+        </div>
+        <div class="result-actions">
+          <button type="button" id="sim-reset" class="secondary">원래 값으로</button>
+          <button type="button" class="secondary" data-goto="result-page">결과로 돌아가기</button>
+        </div>
+      </div>
+      <div id="simulate-content"></div>
+    </section>
+
+    <!-- ── 연도 비교 ── -->
+    <section id="compare-page" class="page card" hidden>
+      <div class="page-head">
+        <div>
+          <div class="muted">검토 결과 · 연도 비교</div>
+          <h2>연도별 비교</h2>
+          <div class="hint">같은 입력값을 <strong>연도별 지분·규모·세율</strong>에 각각 통과시킵니다. 실제 연도별 재무수치가 다르면 그 차이는 반영되지 않습니다.</div>
+        </div>
+        <button type="button" class="secondary" data-goto="result-page">결과로 돌아가기</button>
+      </div>
+      <div id="compare-content"></div>
+    </section>
+
+    <!-- ── 통합 판정 (관리자) ── -->
+    <section id="bulk-page" class="page card" hidden>
+      <div class="page-head">
+        <div>
+          <div class="muted">관리자 전용</div>
+          <h2>통합본 일괄 판정</h2>
+          <div class="hint">법인마다 시트가 하나씩 있는 통합본을 올리면 법인별로 판정해 종합표를 만듭니다.</div>
+        </div>
+        <div class="result-actions">
+          <button type="button" id="bulk-upload-button">통합본 업로드</button>
+          <input type="file" id="bulk-upload-input" accept=".xlsx,.xlsm" hidden>
+        </div>
+      </div>
+      <div id="bulk-content"></div>
+    </section>
+
+    <!-- ── 대시보드 (관리자) ── -->
+    <section id="dashboard-page" class="page card" hidden>
+      <div class="page-head">
+        <div>
+          <div class="muted">관리자 전용</div>
+          <h2>그룹 종합 현황</h2>
+          <div class="hint">통합 판정 결과를 한눈에 봅니다. 문턱에 가까운 법인을 먼저 보여줍니다.</div>
+        </div>
+        <button type="button" class="secondary" data-goto="bulk-page">통합 판정으로</button>
+      </div>
+      <div id="dashboard-content"></div>
+    </section>
+
     <p class="foot">이 서비스는 데모용입니다. 민감한 원본 데이터는 서버에만 보관됩니다.</p>
   </div>
 
-  <script src="/app.js?v=20260831-1"></script>
+  <script src="/app.js?v=20260901-1"></script>
 </body>
 </html>
