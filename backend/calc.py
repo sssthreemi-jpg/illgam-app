@@ -549,10 +549,76 @@ def evaluate(company, operating_income, corporate_tax, total_sales,
         "gift_tax_payable_total": payable_total,
         "reason": _reason(size, taxable_sales, total_sales, normal_ratio, tax_total,
                           over_threshold),
+        # 요건별 판정 내역. reason 한 문장으로는 '어느 요건에서 걸렸는지'를 못 보여준다.
+        "criteria": _criteria(size, after_tax_base, gate_ratio, normal_ratio, myhold, ds,
+                              total_sales),
         # 거래처별 과세제외 사유·조문. 적용률·금액은 ⑩·§18(100%) 건만 채워지고
         # ⑭ 지분율 상당액 건은 None 이다. 합계도 내보내지 않는다(_ratio_exclusion_totals 주석 참조).
         "exclusion_details": [_public_detail(d) for d in details],
     }
+
+
+def _criteria(size, after_tax_base, gate_ratio, normal_ratio, holdings, ds, total_sales,
+              admin=False):
+    """과세요건을 요건별로 쪼갠 판정 내역. '왜 과세인지' 화면이 쓴다.
+
+    판정 자체는 하지 않는다 — `_deemed_gift` 가 실제로 쓰는 것과 **같은 비교식**을
+    그대로 옮겨 적는다. 여기서 식을 새로 쓰면 설명과 세액이 갈린다.
+
+    보유요건은 지배주주 개인별로 본다. 공개 응답에는 '넘는 사람이 있는지'만 담고
+    몇 명인지는 담지 않는다 — 인원수는 지분 구조에 대한 정보이고, 관리자 화면은
+    어차피 `shareholder_details` 로 개인별 지분율을 받는다.
+    """
+    limit = ds.limit_h[size]
+    over_holders = [c for c in ds.codes if holdings.get(c, 0) > limit]
+    ratio_ok = gate_ratio > normal_ratio
+    income_ok = after_tax_base > 0
+
+    ratio_gap = gate_ratio - normal_ratio
+    # 문턱까지 남은 특관매출 여유. 총매출이 0이면 비율 자체를 못 구한다.
+    headroom = (normal_ratio - gate_ratio) * total_sales if total_sales else None
+
+    out = [
+        {
+            "key": "income",
+            "label": "수혜법인 세후영업이익",
+            "passed": income_ok,
+            "detail": ("세후영업이익이 {:,}원으로 0보다 큽니다.".format(round(after_tax_base))
+                       if income_ok else
+                       "세후영업이익이 {:,}원이라 증여의제이익이 생기지 않습니다.".format(
+                           round(after_tax_base))),
+        },
+        {
+            "key": "ratio",
+            "label": "특수관계자 거래비율 > 정상거래비율",
+            "passed": ratio_ok,
+            "actual": gate_ratio,
+            "threshold": normal_ratio,
+            "gap": ratio_gap,
+            # 문턱을 넘지 않았을 때만 의미가 있다. 넘었으면 초과분(gap)을 본다.
+            "headroom": round(headroom) if (headroom is not None and not ratio_ok) else None,
+            "detail": ("판정비율 {:.2f}% 가 정상거래비율 {:.0f}% 를 {:.2f}%p 초과합니다."
+                       .format(gate_ratio * 100, normal_ratio * 100, ratio_gap * 100)
+                       if ratio_ok else
+                       "판정비율 {:.2f}% 가 정상거래비율 {:.0f}% 이하입니다(여유 {:.2f}%p)."
+                       .format(gate_ratio * 100, normal_ratio * 100, -ratio_gap * 100)),
+        },
+        {
+            "key": "holding",
+            "label": "지배주주 보유비율 > 한계보유비율",
+            "passed": bool(over_holders),
+            "threshold": limit,
+            "detail": ("한계보유비율 {:.0f}% 를 넘는 지배주주가 있습니다."
+                       .format(limit * 100) if over_holders else
+                       "한계보유비율 {:.0f}% 를 넘는 지배주주가 없습니다."
+                       .format(limit * 100)),
+        },
+    ]
+    if admin:
+        # 관리자 화면은 개인별 지분율을 이미 받는다. 여기서도 인원수를 채워 준다.
+        out[2]["holder_count"] = len(over_holders)
+        out[2]["holder_codes"] = over_holders
+    return out
 
 
 def _dividend_notices(dividend_income, distributable_income, ds):
@@ -679,6 +745,10 @@ def evaluate_admin_review(company, operating_income, corporate_tax, total_sales,
         })
 
     result.update({
+        # 요건별 판정에 인원수·코드까지 채운 판. 개인별 지분율을 이미 내보내는 화면이다.
+        "criteria": _criteria(size, after_tax_base, result["taxation_ratio"],
+                              result["normal_ratio"], ds.hold.get(company, {}), ds,
+                              total_sales, admin=True),
         # 주주별 적용률(=지분율)까지 담긴 전체 내역. 관리자 응답에만 싣는다.
         "exclusion_details": details,
         "ratio_exclusion_total_min": round(min(ratio_totals.values())) if ratio_totals else 0,

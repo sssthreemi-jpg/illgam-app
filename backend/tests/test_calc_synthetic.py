@@ -33,7 +33,12 @@ PUBLIC_FIELDS = {
     # 계산에 쓴 연도 이름표와 기준시점 문구. 지분 정보가 아니다.
     "year", "data_as_of",
     "reason", "exclusion_details",
+    # 요건별 판정 내역. 비교에 쓴 비율과 문턱만 담기며, 보유요건은 인원수 없이
+    # '넘는 사람이 있는지'까지만 담는다(인원수·코드는 관리자 응답에만 붙는다).
+    "criteria",
 }
+PUBLIC_CRITERIA_FIELDS = {"key", "label", "passed", "detail",
+                          "actual", "threshold", "gap", "headroom"}
 PUBLIC_DETAIL_FIELDS = {"counterparty", "sales", "reason", "article", "rate", "excluded_sales"}
 
 
@@ -447,6 +452,55 @@ def test_evaluate_endpoint_returns_only_public_fields(fixture_data):
     for detail in data["exclusion_details"]:
         assert set(detail) == PUBLIC_DETAIL_FIELDS, detail
         assert detail["rate"] in (None, 0.0, 1.0), detail
+    # 요건 내역에 지분 구조(인원수·코드)가 섞여 나가면 안 된다.
+    for c in data["criteria"]:
+        assert set(c) <= PUBLIC_CRITERIA_FIELDS, c
+
+
+def test_criteria_agrees_with_judgment(fixture_data):
+    """요건 내역은 설명용 문장이 아니라 실제 판정과 같은 비교여야 한다."""
+    calc = fixture_data
+    r = calc.evaluate(SUBJECT, 10_000_000_000, 0, 10_000_000_000,
+                      {COUNTERPARTY_NONE: 5_000_000_000})
+    by_key = {c["key"]: c for c in r["criteria"]}
+    assert set(by_key) == {"income", "ratio", "holding"}
+    # 거래비율 요건은 판정비율과 정상거래비율을 그대로 쓴다.
+    assert by_key["ratio"]["actual"] == r["taxation_ratio"]
+    assert by_key["ratio"]["threshold"] == r["normal_ratio"]
+    assert by_key["ratio"]["passed"] == (r["taxation_ratio"] > r["normal_ratio"])
+    # 과세라면 세 요건이 모두 충족돼 있어야 한다. 하나라도 어긋나면 설명이 틀린 것이다.
+    if r["taxable"]:
+        assert all(c["passed"] for c in r["criteria"]), r["criteria"]
+
+
+def test_criteria_headroom_only_when_below_threshold(fixture_data):
+    """문턱 아래일 때만 '남은 여유'가 채워진다. 넘었으면 초과분(gap)을 본다."""
+    calc = fixture_data
+    below = calc.evaluate(SUBJECT, 10_000_000_000, 0, 10_000_000_000,
+                          {COUNTERPARTY_NONE: 1_000_000_000})
+    ratio = {c["key"]: c for c in below["criteria"]}["ratio"]
+    if not ratio["passed"]:
+        assert ratio["headroom"] is not None
+        # 여유만큼 특관매출이 늘면 정확히 문턱에 닿는다.
+        touched = below["taxation_ratio"] + ratio["headroom"] / 10_000_000_000
+        assert touched == pytest.approx(below["normal_ratio"], abs=1e-9)
+    else:
+        assert ratio["headroom"] is None
+
+
+def test_admin_criteria_carry_holder_detail(fixture_data):
+    """관리자 응답에만 보유요건 인원수·코드가 붙는다."""
+    calc = fixture_data
+    review = calc.evaluate_admin_review(SUBJECT, 10_000_000_000, 0, 10_000_000_000,
+                                        {COUNTERPARTY_NONE: 5_000_000_000})
+    holding = {c["key"]: c for c in review["criteria"]}["holding"]
+    assert "holder_count" in holding and "holder_codes" in holding
+    assert holding["holder_count"] == len(holding["holder_codes"])
+    assert holding["passed"] == (holding["holder_count"] > 0)
+    # 인원수는 주주별 내역에서 세는 것과 같아야 한다.
+    limit = calc.dataset().limit_h[review["size"]]
+    counted = sum(1 for d in review["shareholder_details"] if d["holding_ratio"] > limit)
+    assert holding["holder_count"] == counted
 
 
 def test_admin_review_rejects_anonymous():

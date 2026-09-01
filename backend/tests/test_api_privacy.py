@@ -24,7 +24,7 @@ def test_api_response_privacy():
     body = {"company": "이지메디컴", "operating_income": 1000000, "corporate_tax": 0, "total_sales": 1000000, "related_sales": {"대웅제약": 100000}}
     r = client.post("/api/evaluate", json=body, headers=headers)
     assert r.status_code == 200
-    allowed = {"company","size","taxable","total_sales","related_sales_total","related_sales_ratio","article10_total","taxation_ratio","normal_ratio","deemed_gift_total","dividend_deduction_total","notices","gift_tax_total","filing_credit_total","gift_tax_payable_total","reason","exclusion_details","year","data_as_of"}
+    allowed = {"company","size","taxable","total_sales","related_sales_total","related_sales_ratio","article10_total","taxation_ratio","normal_ratio","deemed_gift_total","dividend_deduction_total","notices","gift_tax_total","filing_credit_total","gift_tax_payable_total","reason","criteria","exclusion_details","year","data_as_of"}
     assert set(r.json().keys()) <= allowed, set(r.json().keys()) - allowed
 
     # ⑭ 지분율 상당액 건에서 지분율이 역산될 만한 값이 새어나가면 안 된다.
@@ -36,6 +36,11 @@ def test_api_response_privacy():
         assert detail["rate"] in (None, 0.0, 1.0), detail
         if detail["rate"] is None:
             assert detail["excluded_sales"] is None, detail
+
+    # 요건 내역에 지분 구조가 새어나가면 안 된다. 공개 응답은 '넘는 사람이 있는지'까지다.
+    for c in r.json().get("criteria", []):
+        assert set(c) <= {"key", "label", "passed", "detail",
+                          "actual", "threshold", "gap", "headroom"}, c
 
     # companies endpoint should return only names list
     r2 = client.get("/api/companies", headers=headers)

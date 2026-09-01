@@ -28,6 +28,10 @@ def test_privacy_fields():
         "deemed_gift_total",
         "gift_tax_total",
         "reason",
+        # 요건별 판정 내역. 비교에 쓴 비율과 문턱(정상거래비율·한계보유비율)만 담는다.
+        # 문턱은 params.json 의 규칙값이고, 보유요건은 '넘는 사람이 있는지'만 담는다
+        # (인원수·코드는 admin=True 일 때만 붙는다).
+        "criteria",
         # 과세제외 내역: 사유·조문과, 주주 무관하게 동일한 건(⑩/§18)의 적용률·금액만 담긴다.
         # ⑭ 지분율 상당액은 적용률·금액 모두 None 이며 어떤 합계도 함께 내보내지 않는다.
         "exclusion_details",
