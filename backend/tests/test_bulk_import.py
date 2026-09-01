@@ -109,11 +109,12 @@ def test_reads_sheets_with_different_column_offsets(fixture_data):
     assert right["company"] == "다라화학"
 
 
-def test_annualizes_half_year_detail_rows(fixture_data):
-    """상세표의 실매출만 연환산 전 금액이다. 계수를 역산해 맞춘다.
+def test_uses_annualized_column_for_detail_rows(fixture_data):
+    """거래처 매출은 파일의 연환산 열((A−B)×계수)을 그대로 쓴다.
 
-    총매출·영업이익은 파일 안에서 이미 환산된 값이므로 건드리지 않는다.
-    이걸 놓치면 분자만 반기, 분모는 연간이 되어 비율이 절반으로 나온다.
+    그 열이 이 파일의 정본이다 — 해외매출이 이미 빠져 있고 연환산도 끝나 있어,
+    우리가 계수를 역산해 실매출에 곱하는 것보다 정확하다.
+    총매출·영업이익은 파일 안에서 이미 환산돼 있으므로 손대지 않는다.
     """
     def build(wb):
         _sheet(wb.create_sheet("반기"), name=SUBJECT, size="일반",
@@ -122,15 +123,39 @@ def test_annualizes_half_year_detail_rows(fixture_data):
                      (OTHER, 500_000_000, 100_000_000, 2)])
 
     s = _by_sheet(_parse(_workbook(build), fixture_data), "반기")
-    assert s["annualize_factor"] == 2.0
-    assert s["related_sales"][COUNTERPARTY] == 2_000_000_000
-    assert s["related_sales"][OTHER] == 1_000_000_000
-    # 해외매출도 같은 계수로 환산해 ⑩ 로 넘긴다.
-    assert s["article10_exclusions"][OTHER] == 200_000_000
-    # 환산합계 열 = (실매출 − 해외) × 계수 이므로 특관 − ⑩ 이 그 합과 같아야 한다.
-    assert s["related_total"] - s["article10_total"] == 2_000_000_000 + 800_000_000
-    # 총매출은 파일 값 그대로다(이미 환산돼 있다).
+    assert s["related_sales"][COUNTERPARTY] == 2_000_000_000      # (10억 − 0) × 2
+    assert s["related_sales"][OTHER] == 800_000_000               # (5억 − 1억) × 2
+    # 해외매출은 연환산 열에서 이미 빠졌으므로 ⑩ 으로 다시 넘기지 않는다.
+    # 두 번 빼면 판정비율이 실제보다 낮아진다.
+    assert s["article10_exclusions"] == {}
+    # 다만 얼마가 빠진 값인지는 남겨서 화면에 보여준다.
+    assert s["foreign_sales_total"] == 200_000_000
+    assert any("해외매출" in w for w in s["warnings"])
     assert s["total_sales"] == 10_000_000_000
+
+
+def test_reads_value_past_placeholder_and_half_year_columns(fixture_data):
+    """라벨과 값 사이에 안내 문구·반기 금액이 끼어 있어도 연환산 값을 읽는다.
+
+    실제 파일이 이렇다:
+        C6=총매출액 | D6='반기매출입력' | E6=454,217,451(반기) | F6=908,434,902(연환산)
+    라벨 오른쪽 '첫' 칸을 값으로 삼으면 안내 문구를 읽고 입력대기로 빼버린다 —
+    데이터가 있는 법인이 통째로 판정에서 빠지는 사고다(아이엔·대웅테라가 그랬다).
+    """
+    def build(wb):
+        ws = wb.create_sheet("문구끼임")
+        _sheet(ws, name=SUBJECT, size="일반", total=10_000_000_000, income=1_000_000_000,
+               rows=[(COUNTERPARTY, 500_000_000, 0, 2)])
+        # 라벨(D열)과 연환산 값(G열) 사이에 안내 문구와 반기 금액을 끼워 넣는다.
+        ws.cell(row=6, column=5, value="반기매출입력")
+        ws.cell(row=6, column=6, value=5_000_000_000)
+        ws.cell(row=8, column=5, value="반기영업이익 입력")
+        ws.cell(row=8, column=6, value=500_000_000)
+
+    s = _by_sheet(_parse(_workbook(build), fixture_data), "문구끼임")
+    assert s["status"] == "ok"
+    assert s["total_sales"] == 10_000_000_000       # 반기 50억이 아니라 연환산 100억
+    assert s["operating_income"] == 1_000_000_000
 
 
 def test_placeholder_text_is_pending_not_zero(fixture_data):

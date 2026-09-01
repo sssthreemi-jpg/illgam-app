@@ -1242,7 +1242,9 @@ function renderBulk(){
       <td class="amount">${s.total_sales == null ? '<span class="muted">—</span>' : formatNum(s.total_sales) + '원'}</td>
       <td class="amount">${s.operating_income == null ? '<span class="muted">—</span>' : formatNum(s.operating_income) + '원'}</td>
       <td class="amount">${formatNum(s.related_total)}원<div class="row-note">거래처 ${s.counterparty_count}곳</div></td>
-      <td class="amount">${s.article10_total ? formatNum(s.article10_total) + '원' : '<span class="muted">0원</span>'}</td>
+      <td class="amount">${s.foreign_sales_total
+        ? `<span class="muted">${formatNum(s.foreign_sales_total)}원</span><div class="row-note">위 매출에서 이미 차감됨</div>`
+        : '<span class="muted">0원</span>'}</td>
       <td class="amount">${selectable
         ? `<input type="number" min="0" class="bulk-tax" data-company="${escapeHtml(s.company)}" value="${tax != null ? tax : 0}">`
         : '<span class="muted">—</span>'}</td>
@@ -1272,7 +1274,7 @@ function renderBulk(){
       <table class="wide-table">
         <thead><tr>
           <th style="width:34px"></th><th>법인</th><th>상태</th><th class="amount">총매출</th>
-          <th class="amount">영업이익</th><th class="amount">특수관계자 매출</th><th class="amount">제10항 제외</th>
+          <th class="amount">영업이익</th><th class="amount">특수관계자 매출</th><th class="amount">해외매출</th>
           <th class="amount" style="width:130px">법인세 상당액</th><th style="width:280px">확인 사항</th>
         </tr></thead>
         <tbody>${rows}</tbody>

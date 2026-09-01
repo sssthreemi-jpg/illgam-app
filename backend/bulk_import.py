@@ -5,10 +5,18 @@
 **시트마다 표가 시작하는 열이 다르다**(대웅제약은 D/G, 대웅개발은 C/F).
 그래서 열 번호를 고정하지 않고 라벨을 찾아 그 오른쪽/아래를 읽는다.
 
-연환산: 원본 파일의 셀 수식이 `=(E15-F15)*$M$5/$N$5` 처럼 반기 금액에 계수를 곱한다.
-총매출·영업이익도 같은 계수를 쓰므로 **분자와 분모의 기준이 이미 맞아 있다.**
-우리가 읽는 값은 수식 결과(data_only)라, 상세표의 '실매출'만 연환산 전 금액이다.
-따라서 계수를 역산해(환산합계 ÷ (실매출 − 해외매출)) 실매출에 곱해 맞춘다.
+**연환산 열이 이 파일의 정본이다.** 원본 셀 수식이 `=(E15-F15)*$M$5/$N$5` 처럼
+반기 금액에 계수를 곱하고, 총매출·영업이익도 같은 계수를 쓴다. 그래서 거래처 매출은
+그 열(`매출 합계 (1년 환산)`)을 그대로 읽고, 총매출·영업이익도 같은 열에서 읽는다 —
+분자와 분모의 기준이 파일 안에서 이미 맞아 있다. 이 열에는 해외매출이 이미 빠져 있어
+⑩ 으로 다시 넘기지 않는다(두 번 빼면 판정비율이 실제보다 낮아진다).
+
+라벨 오른쪽 '첫' 칸을 값으로 삼으면 안 된다. 라벨과 연환산 값 사이에 안내 문구와
+반기 금액이 끼어 있어(`총매출액 | '반기매출입력' | 454,217,451 | 908,434,902`),
+첫 칸만 보면 문구를 값으로 읽고 데이터가 있는 법인을 통째로 입력대기로 빼버린다.
+
+연환산 열이 없는 파일을 위해 계수를 역산하는(환산합계 ÷ (실매출 − 해외매출))
+대체 경로를 남겨 뒀다. 그 경로에서는 해외매출을 ⑩ 으로 넘긴다.
 
 이 모듈은 **아무것도 저장하지 않고 계산도 하지 않는다.** 판정은 calc 가 한다.
 """
@@ -87,12 +95,37 @@ def _find_label(rows, labels) -> Optional[tuple]:
     return None
 
 
-def _value_right_of(rows, pos):
-    """라벨 셀의 오른쪽 첫 값. 병합셀이면 빈 칸이 몇 개 끼어 있다."""
+def _value_right_of(rows, pos, value_col=None):
+    """라벨 셀의 값. 연환산 열(`매출 합계 (1년 환산)`)을 정본으로 본다.
+
+    라벨 오른쪽 '첫' 칸을 값으로 삼으면 안 된다. 실제 파일에는 라벨과 값 사이에
+    안내 문구와 반기 금액이 끼어 있다:
+
+        C6=총매출액 | D6='반기매출입력' | E6=454,217,451(반기) | F6=908,434,902(연환산)
+
+    첫 칸만 보면 '반기매출입력'을 값으로 읽어 **데이터가 있는 법인을 입력대기로
+    빼버린다.** 실제로 아이엔·대웅테라가 그렇게 빠졌다.
+
+    열을 F 로 고정할 수도 없다 — 대웅·대웅제약은 표가 한 칸 오른쪽에서 시작해
+    같은 값이 G 에 있고 F 는 비어 있다. 그래서 그 시트의 상세표 헤더에서 찾은
+    연환산 열(`value_col`)을 쓰고, 없으면 오른쪽에서 가장 먼 숫자를 고른다.
+    """
     if pos is None:
         return None
     i, j = pos
     row = rows[i]
+    # 1순위: 그 시트의 연환산 열. 총매출·영업이익도 상세표와 같은 열에 놓여 있다.
+    if value_col is not None and j < value_col < len(row):
+        if parse_amount(row[value_col]) is not None:
+            return row[value_col]
+    # 2순위: 라벨 오른쪽에서 가장 먼 숫자(반기 금액 왼쪽에 연환산이 오는 일은 없다).
+    found = None
+    for k in range(j + 1, min(j + 1 + VALUE_SCAN_COLS, len(row))):
+        if parse_amount(row[k]) is not None:
+            found = row[k]
+    if found is not None:
+        return found
+    # 숫자가 하나도 없으면 안내 문구라도 돌려준다 — 왜 못 읽었는지 화면에 적어야 한다.
     for k in range(j + 1, min(j + 1 + VALUE_SCAN_COLS, len(row))):
         if row[k] not in (None, ""):
             return row[k]
@@ -190,35 +223,42 @@ def _parse_sheet(title, rows, lookup, sizes) -> dict:
     warnings: List[str] = []
     head = [list(r[:HEADER_SCAN_COLS]) for r in rows[:HEADER_SCAN_ROWS]]
 
+    # 기본정보 값은 상세표의 연환산 열에 놓이므로 헤더를 먼저 찾는다.
+    cols = _find_detail_header(rows)
+    value_col = cols["total"] if cols else None
+    if cols is None:
+        warnings.append("특수관계자 매출 상세표를 찾지 못했습니다. '매출거래처' 머리글이 있는지 확인하세요.")
+
     raw_name = _value_right_of(head, _find_label(head, FIELD_LABELS["company_name"]))
     # 법인명 셀이 정본이고, 없으면 시트명으로 맞춰본다(시트명은 '생명과학' 처럼 줄임말이 많다).
     company = lookup.get(normalize_name(raw_name)) or lookup.get(normalize_name(title))
     size_excel = _text(_value_right_of(head, _find_label(head, FIELD_LABELS["size"])))
 
     def money(field):
-        raw = _value_right_of(head, _find_label(head, FIELD_LABELS[field]))
+        raw = _value_right_of(head, _find_label(head, FIELD_LABELS[field]), value_col)
         return parse_amount(raw), raw
 
     total_sales, total_raw = money("total_sales")
     operating_income, income_raw = money("operating_income")
     corporate_tax, _ = money("corporate_tax")
 
-    cols = _find_detail_header(rows)
     entries = _read_detail(rows, cols) if cols else []
-    if cols is None:
-        warnings.append("특수관계자 매출 상세표를 찾지 못했습니다. '매출거래처' 머리글이 있는지 확인하세요.")
-
     factor = _annualize_factor(entries)
     related: Dict[str, int] = {}
     article10: Dict[str, int] = {}
     unmatched: List[dict] = []
+    foreign_total = 0
     for e in entries:
-        if e["amount"] is None:
-            # 실매출 칸이 비고 환산합계만 있는 줄. 이미 환산된 값이라 계수를 곱하지 않는다.
-            amount, foreign = e["total"] or 0, 0
+        if e["total"] is not None:
+            # 연환산 열(=(A−B)×계수)이 이 파일의 정본이다. 해외매출이 이미 빠져 있고
+            # 연환산도 끝나 있어, 우리가 계수를 역산해 곱하는 것보다 정확하다.
+            amount, foreign = e["total"], 0
         else:
-            amount = round(e["amount"] * factor)
+            # 연환산 열이 없는 파일용 대체 경로. 실매출에 계수를 곱하고
+            # 해외매출은 ⑩ 으로 넘긴다.
+            amount = round((e["amount"] or 0) * factor)
             foreign = round(e["foreign"] * factor)
+        foreign_total += round(e["foreign"] * factor)
         if amount <= 0 and foreign <= 0:
             continue
         target = lookup.get(normalize_name(e["name"]))
@@ -269,6 +309,12 @@ def _parse_sheet(title, rows, lookup, sizes) -> dict:
         )
     if corporate_tax is None and status == "ok":
         warnings.append("법인세 상당액이 파일에 없습니다. 화면에서 입력하세요(미입력 시 세액이 과대 계산됩니다).")
+    # 연환산 열을 쓰면 해외매출이 이미 빠져 있어 ⑩ 으로 따로 넘기지 않는다.
+    # 금액이 묻히지 않게 얼마가 빠진 값인지는 남긴다.
+    if foreign_total and not article10:
+        warnings.append(
+            "해외매출(L/C·내국신용장) {:,}원이 이미 빠진 '매출 합계(1년 환산)' 값입니다. "
+            "제10항으로 따로 넘기지 않습니다.".format(foreign_total))
 
     return {
         "sheet": title,
@@ -286,6 +332,8 @@ def _parse_sheet(title, rows, lookup, sizes) -> dict:
         "article10_exclusions": article10,
         "related_total": sum(related.values()),
         "article10_total": sum(article10.values()),
+        # 연환산 열에서 이미 차감된 해외매출. 계산에는 안 쓰고 화면에만 보여준다.
+        "foreign_sales_total": foreign_total,
         "counterparty_count": len(related),
         "unmatched": unmatched,
         "warnings": warnings,
