@@ -1222,6 +1222,7 @@ const BULK_STATUS_TAG = {
   '입력대기': '<span class="tag mute">입력 대기</span>',
   '미매칭': '<span class="tag bad">법인 미매칭</span>',
   '건너뜀': '<span class="tag mute">법인 시트 아님</span>',
+  '매출없음': '<span class="tag mute">매출 없음</span>',
 }
 
 function renderBulk(){
@@ -1233,6 +1234,7 @@ function renderBulk(){
   }
   const p = bulkParsed
   const rows = p.sheets.map((s, i)=>{
+    // 매출이 없거나 법인 시트가 아닌 것은 고를 필요가 없다.
     const selectable = s.status === 'ok' || s.status === '확인필요'
     const tax = bulkTaxInputs[s.company]
     return `<tr data-sheet-index="${i}">
@@ -1260,8 +1262,9 @@ function renderBulk(){
     <div class="tiles" style="margin-bottom:18px">
       ${tile('읽은 시트', p.stats.sheets_read, escapeHtml(p.filename || ''))}
       ${tile('판정 가능', p.stats.ready, `${p.year}년 데이터 기준`, 'ok')}
-      ${tile('보류', p.stats.pending, '입력 대기·확인 필요')}
-      ${tile('법인 시트 아님', p.stats.skipped || 0, '요약·분류 시트 등')}
+      ${tile('보류', p.stats.pending, '입력 대기·확인 필요', p.stats.pending ? 'bad' : '')}
+      ${tile('제외', (p.stats.skipped || 0) + (p.stats.no_sales || 0),
+             `매출 없음 ${p.stats.no_sales || 0} · 법인 시트 아님 ${p.stats.skipped || 0}`)}
       ${tile('시트 없음', p.stats.missing, '통합본에 시트가 없는 법인')}
     </div>
 
@@ -1476,7 +1479,9 @@ function renderDashboard(){
   // 시트는 있는데 이번 합계에 안 들어간 법인. 상태로 거르면 '확인필요'인데 선택을
   // 해제한 법인이 어디에도 안 잡혀 조용히 사라진다 — 판정된 곳의 여집합으로 잡는다.
   const pending = (parsed.sheets || [])
-    .filter(s => s.status !== '건너뜀' && !evaluated.has(s.company))
+    .filter(s => !['건너뜀', '매출없음'].includes(s.status) && !evaluated.has(s.company))
+  // 매출이 없어 판정 대상이 아닌 법인. 손볼 것이 없으므로 경고와 분리해 적는다.
+  const noSales = (parsed.sheets || []).filter(s => s.status === '매출없음')
   // '확인필요'인데도 판정에 넣은 법인. 총매출이 임시값이면 비율이 터무니없어지고
   // 그 결과가 '해당없음'으로 조용히 표시된다 — 그대로 믿으면 안 된다.
   const shaky = (parsed.sheets || []).filter(s => s.status === '확인필요' && evaluated.has(s.company))
@@ -1520,6 +1525,7 @@ function renderDashboard(){
       <strong>이 숫자에 빠져 있는 법인</strong>
       ${pending.length ? `<div>시트는 있지만 판정 안 함 ${pending.length}곳 — ${pending.map(s => `${escapeHtml(s.company || s.excel_name)}<span class="muted">(${escapeHtml(s.status)})</span>`).join(', ')}</div>` : ''}
       ${missing.length ? `<div>통합본에 시트 없음 ${missing.length}곳 — ${missing.slice(0, 12).map(m => escapeHtml(m)).join(', ')}${missing.length > 12 ? ` 외 ${missing.length - 12}곳` : ''}</div>` : ''}
+      ${noSales.length ? `<div class="muted">매출 없음 ${noSales.length}곳(판정 대상 아님) — ${noSales.map(s => escapeHtml(s.company || s.excel_name)).join(', ')}</div>` : ''}
       <div style="margin-top:6px">위 합계는 <b>판정한 ${t.evaluated}곳만</b>의 값입니다.</div>
     </div>` : ''}
 

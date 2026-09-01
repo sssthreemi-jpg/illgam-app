@@ -301,9 +301,19 @@ def _parse_sheet(title, rows, lookup, sizes) -> dict:
         warnings.append("아직 채워지지 않았습니다: " + ", ".join(missing))
     else:
         related_total = sum(related.values())
-        if total_sales <= 0:
-            status = "입력대기"
-            warnings.append("총매출이 0 이하라 비율을 계산할 수 없습니다.")
+        if total_sales <= 0 and related_total <= 0:
+            # 실제로 매출이 없는 법인이 있다(대웅낙원·블루넷 등). 이런 곳은 판정해도
+            # 늘 '해당없음'이라 사람이 볼 것이 없다. 손볼 것이 있는 '보류'와 섞으면
+            # 진짜 확인이 필요한 법인이 그 안에 묻힌다.
+            status = "매출없음"
+            warnings.append("총매출·특수관계자 매출이 모두 0 입니다. 판정 대상이 아닙니다.")
+        elif total_sales <= 0:
+            # 특관매출은 있는데 총매출이 0 이면 비율이 성립하지 않는다.
+            # 이건 '매출이 없는 것'이 아니라 데이터가 어긋난 것이므로 반드시 드러내야 한다.
+            status = "확인필요"
+            warnings.append(
+                "총매출이 0 인데 특수관계자 매출이 {:,}원 있습니다. 총매출을 확인하세요."
+                .format(related_total))
         elif related_total > total_sales:
             status = "확인필요"
             warnings.append(
@@ -418,8 +428,10 @@ def parse_workbook(content: bytes, filename: str, companies: List[str],
         "stats": {
             "sheets_read": len(sheets),
             "ready": sum(1 for s in sheets if s["status"] == "ok"),
-            "pending": sum(1 for s in sheets if s["status"] not in ("ok", "건너뜀")),
+            "pending": sum(1 for s in sheets
+                           if s["status"] not in ("ok", "건너뜀", "매출없음")),
             "skipped": sum(1 for s in sheets if s["status"] == "건너뜀"),
+            "no_sales": sum(1 for s in sheets if s["status"] == "매출없음"),
             "missing": len(missing),
         },
     }

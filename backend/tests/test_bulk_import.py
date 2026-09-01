@@ -183,12 +183,20 @@ def test_related_sales_over_total_sales_flagged(fixture_data):
     assert any("총매출" in w for w in s["warnings"])
 
 
-def test_zero_total_sales_is_pending(fixture_data):
+def test_placeholder_beats_zero_when_deciding_pending(fixture_data):
+    """총매출이 '숫자 0' 인 것과 '안 적힌 것' 은 다르게 다뤄야 한다.
+
+    0 은 매출이 없다는 사실이지만, 안내 문구는 아직 안 채운 것이다.
+    전자는 판정 대상이 아니고(매출없음), 후자는 사람이 채워야 한다(입력대기).
+    """
     def build(wb):
         _sheet(wb.create_sheet("영"), name=SUBJECT, size="일반", total=0, income=0, rows=[])
+        _sheet(wb.create_sheet("미입력"), name="다라화학", size="중견",
+               total="반기매출입력", income="반기영업이익 입력", rows=[])
 
-    s = _by_sheet(_parse(_workbook(build), fixture_data), "영")
-    assert s["status"] == "입력대기"
+    parsed = _parse(_workbook(build), fixture_data)
+    assert _by_sheet(parsed, "영")["status"] == "매출없음"
+    assert _by_sheet(parsed, "미입력")["status"] == "입력대기"
 
 
 def test_size_mismatch_warns_and_keeps_server_value(fixture_data):
@@ -372,3 +380,42 @@ def test_blank_size_cell_is_not_a_mismatch(fixture_data):
     assert s["size_mismatch"] is False
     assert not any("기업구분" in w for w in s["warnings"])
     assert s["size_app"] == "일반"      # 계산은 서버 값으로 한다
+
+
+def test_zero_everything_is_no_sales_not_pending(fixture_data):
+    """총매출도 특관매출도 0 이면 판정 대상이 아니다.
+
+    실제로 매출이 없는 법인이 있다(대웅낙원·블루넷 등). 이런 곳을 '보류'로 세면
+    사람이 손봐야 할 법인이 그 안에 묻힌다.
+    """
+    def build(wb):
+        _sheet(wb.create_sheet("무매출"), name=SUBJECT, size="일반", total=0, income=-1_000_000,
+               rows=[])
+        _sheet(wb.create_sheet("정상"), name="다라화학", size="중견",
+               total=10_000_000_000, income=1_000_000_000,
+               rows=[(COUNTERPARTY, 500_000_000, 0, 1)])
+
+    parsed = _parse(_workbook(build), fixture_data)
+    s = _by_sheet(parsed, "무매출")
+    assert s["status"] == "매출없음"
+    assert parsed["stats"]["no_sales"] == 1
+    assert parsed["stats"]["pending"] == 0      # 보류로 세지 않는다
+    assert parsed["stats"]["ready"] == 1
+
+
+def test_zero_total_with_related_sales_is_flagged(fixture_data):
+    """총매출만 0 이고 특관매출이 있으면 그냥 넘기면 안 된다.
+
+    '매출이 없는 법인'이 아니라 데이터가 어긋난 것이다. 비율이 성립하지 않으므로
+    조용히 제외하면 과세 대상이 통째로 빠질 수 있다.
+    """
+    def build(wb):
+        _sheet(wb.create_sheet("모순"), name=SUBJECT, size="일반", total=0, income=1_000_000_000,
+               rows=[(COUNTERPARTY, 500_000_000, 0, 1)])
+
+    parsed = _parse(_workbook(build), fixture_data)
+    s = _by_sheet(parsed, "모순")
+    assert s["status"] == "확인필요"
+    assert parsed["stats"]["no_sales"] == 0
+    assert parsed["stats"]["pending"] == 1
+    assert any("총매출이 0" in w for w in s["warnings"])
