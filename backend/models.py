@@ -51,3 +51,9 @@ class BulkEvaluateRequest(BaseModel):
     # 연도는 요청 전체에 하나다. 법인마다 다른 연도로 섞으면 종합표가 의미를 잃는다.
     year: Optional[str] = None
     companies: List[BulkCompanyInput]
+
+
+class BlankSheetsRequest(BaseModel):
+    """빈 시트를 만들 법인 목록. 통합본에 시트가 없는 법인을 화면이 골라 보낸다."""
+    year: Optional[str] = None
+    companies: List[str]

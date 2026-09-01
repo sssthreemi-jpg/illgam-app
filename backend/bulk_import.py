@@ -22,6 +22,7 @@
 """
 
 import io
+import re
 from typing import Dict, List, Optional
 
 from backend.excel_import import (
@@ -447,3 +448,125 @@ def parse_workbook(content: bytes, filename: str, companies: List[str],
             "missing": len(missing),
         },
     }
+
+
+# --- 빈 시트 양식 ---------------------------------------------------------------
+# 통합본에 시트가 없는 법인용. **기존 시트와 같은 모양으로 만든다** — 사용자가 이 시트를
+# 통합본에 그대로 복사해 넣거나, 이 파일만 채워서 따로 올릴 수 있어야 하기 때문이다.
+#
+# 원본 서식(클리슈어리서치 기준):
+#   C2 법인명 / F2 값,  C4 기업구분 / F4 값,  L5·M5 = 연환산 계수(12개월 ÷ 6개월)
+#   C6 총매출액 / E6 반기 입력 / F6 = E6 × 계수,   C8 영업이익 / E8 / F8 동일
+#   C11 매출거래처 | D11 매출액 | E11 해외매출 | F11 매출 합계(1년 환산)
+#   15행부터 거래처, 그 아래 '합 계' 행과 '특관매출비율' 행
+
+BLANK_FIRST_ROW = 15
+ANNUALIZE_MONTHS = 12      # L5
+PERIOD_MONTHS = 6          # M5 — 반기 기준. 연간 자료면 12 로 바꿔 쓴다.
+
+
+def build_blank_sheets(companies: List[str], counterparties: List[str],
+                       sizes: Dict[str, str], as_of: str = "") -> bytes:
+    """시트가 없는 법인들의 빈 시트를 담은 워크북."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+    wb = Workbook()
+    wb.remove(wb.active)
+
+    head_fill = PatternFill("solid", fgColor="EAF1FA")
+    label_font = Font(bold=True)
+    thin = Side(style="thin", color="D0D5DB")
+    box = Border(left=thin, right=thin, top=thin, bottom=thin)
+    money = "#,##0"
+
+    for company in companies:
+        # 엑셀 시트명은 31자까지이고 : \ / ? * [ ] 를 못 쓴다.
+        title = re.sub(r"[:\/?*\[\]]", " ", company)[:31] or "법인"
+        ws = wb.create_sheet(title)
+
+        ws["C2"], ws["F2"] = "법인명", company
+        ws["C4"], ws["F4"] = "기업구분", sizes.get(company, "")
+        ws["E5"] = "상반기 매출"
+        ws["L5"], ws["M5"] = ANNUALIZE_MONTHS, PERIOD_MONTHS
+        ws["K5"] = "연환산(개월)"
+        ws["C6"] = "총매출액"
+        ws["F6"] = "=E6*$L$5/$M$5"
+        ws["E7"] = "상반기 영업이익"
+        ws["C8"] = "영업이익"
+        ws["F8"] = "=E8*$L$5/$M$5"
+        ws["C10"] = "특수관계자 매출 상세"
+
+        ws["C11"] = "매출거래처"
+        ws["D11"] = "매출액"
+        ws["E11"] = "매출액 중 해외매출\n(L/C, 내국신용장 등)"
+        ws["F11"] = "매출 합계 (1년 환산)"
+        ws["D13"] = "발생한 실제매출"
+        ws["D14"], ws["E14"], ws["F14"] = "A", "B", "(A-B)"
+
+        row = BLANK_FIRST_ROW
+        for name in counterparties:
+            # 자기 자신에게 판 매출은 특수관계자 거래가 아니다. 줄은 두되 비워 둔다.
+            ws.cell(row=row, column=3, value=name)
+            ws.cell(row=row, column=6, value=f"=(D{row}-E{row})*$L$5/$M$5")
+            row += 1
+        last = row - 1
+
+        total_row = row + 1
+        ws.cell(row=total_row, column=3, value="합 계").font = label_font
+        ws.cell(row=total_row, column=4, value=f"=SUM(D{BLANK_FIRST_ROW}:D{last})")
+        ws.cell(row=total_row, column=5, value=f"=SUM(E{BLANK_FIRST_ROW}:E{last})")
+        ws.cell(row=total_row, column=6,
+                value=f"=(D{total_row}-E{total_row})*$L$5/$M$5")
+
+        ratio_row = total_row + 2
+        ws.cell(row=ratio_row, column=3, value="특관매출비율").font = label_font
+        # 분모에서 해외매출을 빼는 것까지 원본 산식 그대로다.
+        ws.cell(row=ratio_row, column=6,
+                value=f"=IF(F6-E{total_row}=0,\"\",F{total_row}/(F6-E{total_row}))")
+        ws.cell(row=ratio_row, column=6).number_format = "0.00%"
+        ws["I5"] = "특관매출 비율"
+        ws["J5"] = f"=F{ratio_row}"
+        ws["J5"].number_format = "0.00%"
+
+        for cell in (ws["C2"], ws["C4"], ws["C6"], ws["C8"], ws["C10"]):
+            cell.font = label_font
+        for ref in ("C11", "D11", "E11", "F11"):
+            ws[ref].fill = head_fill
+            ws[ref].font = label_font
+            ws[ref].alignment = Alignment(horizontal="center", vertical="center",
+                                          wrap_text=True)
+            ws[ref].border = box
+        for r in range(BLANK_FIRST_ROW, ratio_row + 1):
+            for c in range(3, 7):
+                ws.cell(row=r, column=c).border = box
+                if c > 3:
+                    ws.cell(row=r, column=c).number_format = money
+        for ref in ("E6", "F6", "E8", "F8"):
+            ws[ref].number_format = money
+
+        ws.column_dimensions["A"].width = 3.4
+        ws.column_dimensions["B"].width = 14.3
+        ws.column_dimensions["C"].width = 30
+        ws.column_dimensions["D"].width = 18.6
+        ws.column_dimensions["E"].width = 16.5
+        ws.column_dimensions["F"].width = 20
+        ws.row_dimensions[11].height = 34
+
+        note = ratio_row + 2
+        ws.cell(row=note, column=3,
+                value="※ D열(발생한 실제매출)과 E열(그중 해외매출)만 채우세요. "
+                      "F열은 수식이라 자동 계산됩니다.")
+        ws.cell(row=note, column=3).font = Font(color="64748B", size=10)
+        ws.cell(row=note + 1, column=3,
+                value="※ E6(상반기 총매출)·E8(상반기 영업이익)을 채우면 F6·F8 이 연환산됩니다. "
+                      f"연간 자료면 M5 를 {ANNUALIZE_MONTHS} 로 바꾸세요.")
+        ws.cell(row=note + 1, column=3).font = Font(color="64748B", size=10)
+        ws.cell(row=note + 2, column=3,
+                value="※ 거래처명(C열)은 수정하지 마세요. 이름이 바뀌면 자동 매칭이 깨집니다."
+                      + (f"  기준: {as_of}" if as_of else ""))
+        ws.cell(row=note + 2, column=3).font = Font(color="64748B", size=10)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()

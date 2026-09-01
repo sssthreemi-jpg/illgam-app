@@ -459,3 +459,74 @@ def test_tax_adjustment_read_when_present(fixture_data):
         _sheet(wb.create_sheet("없음"), name=SUBJECT, size="일반",
                total=10_000_000_000, income=1_000_000_000, rows=[])
     assert _by_sheet(_parse(_workbook(build2), fixture_data), "없음")["tax_adjustment"] is None
+
+
+# --- 빈 시트 양식 ---------------------------------------------------------------
+
+def test_blank_sheets_round_trip(fixture_data):
+    """만들어 준 빈 시트를 채워서 다시 올리면 그대로 읽혀야 한다.
+
+    양식과 파서가 어긋나면 사용자는 채워 넣고도 '입력대기'만 보게 된다.
+    """
+    import openpyxl
+
+    calc = fixture_data
+    companies = [SUBJECT, "다라화학"]
+    data = bulk_import.build_blank_sheets(companies, calc.company_list(),
+                                          calc.dataset().sizes, "테스트 기준")
+
+    # 안 채운 채로 올려도 조용히 0 으로 계산되면 안 된다.
+    blank = bulk_import.parse_workbook(data, "blank.xlsx", calc.company_list(),
+                                       calc.dataset().sizes)
+    assert [s["sheet"] for s in blank["sheets"]] == companies
+    assert {s["status"] for s in blank["sheets"]} == {"입력대기"}
+
+    # 엑셀에서 채워 저장한 상태를 흉내 낸다(엑셀은 수식 결과를 캐시해 둔다).
+    wb = openpyxl.load_workbook(io.BytesIO(data))
+    ws = wb[SUBJECT]
+    ws["E6"], ws["F6"] = 5_000_000_000, 10_000_000_000     # 반기 → 연환산
+    ws["E8"], ws["F8"] = 400_000_000, 800_000_000
+    for row in ws.iter_rows(min_row=bulk_import.BLANK_FIRST_ROW, max_col=6):
+        if row[2].value == COUNTERPARTY:
+            row[3].value, row[4].value, row[5].value = 1_000_000_000, 0, 2_000_000_000
+        elif isinstance(row[5].value, str) and row[5].value.startswith("="):
+            row[5].value = 0
+    buf = io.BytesIO()
+    wb.save(buf)
+
+    filled = bulk_import.parse_workbook(buf.getvalue(), "filled.xlsx",
+                                        calc.company_list(), calc.dataset().sizes)
+    s = next(x for x in filled["sheets"] if x["sheet"] == SUBJECT)
+    assert s["status"] == "ok"
+    assert s["total_sales"] == 10_000_000_000       # 반기 50억이 아니라 연환산 100억
+    assert s["operating_income"] == 800_000_000
+    assert s["related_sales"] == {COUNTERPARTY: 2_000_000_000}
+
+
+def test_blank_sheets_use_server_size_and_company_list(fixture_data):
+    """기업구분은 서버 값을 박아 주고, 거래처 목록도 서버 목록을 그대로 쓴다."""
+    import openpyxl
+
+    calc = fixture_data
+    data = bulk_import.build_blank_sheets([SUBJECT], calc.company_list(),
+                                          calc.dataset().sizes)
+    ws = openpyxl.load_workbook(io.BytesIO(data))[SUBJECT]
+    assert ws["F2"].value == SUBJECT
+    assert ws["F4"].value == calc.dataset().sizes[SUBJECT]
+    names = [ws.cell(row=r, column=3).value
+             for r in range(bulk_import.BLANK_FIRST_ROW,
+                            bulk_import.BLANK_FIRST_ROW + len(calc.company_list()))]
+    assert names == calc.company_list()
+
+
+def test_blank_sheets_endpoint_requires_admin_and_known_company(fixture_data):
+    body = {"companies": [SUBJECT]}
+    assert client.post("/api/admin/bulk/blank-sheets", json=body).status_code == 401
+
+    r = client.post("/api/admin/bulk/blank-sheets", json=body, headers=_admin())
+    assert r.status_code == 200, r.text
+    assert r.content[:2] == b"PK"          # xlsx 는 zip 이다
+
+    bad = client.post("/api/admin/bulk/blank-sheets",
+                      json={"companies": ["없는법인"]}, headers=_admin())
+    assert bad.status_code == 400

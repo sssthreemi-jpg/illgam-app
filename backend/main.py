@@ -11,8 +11,8 @@ import urllib.parse
 # 모듈을 통해 참조한다(테스트가 fixture 데이터로 갈아끼울 수 있어야 한다).
 from backend import bulk_import, calc, excel_import
 from backend.calc import evaluate, evaluate_admin_review, company_list
-from backend.models import (BulkEvaluateRequest, LoginRequest, LoginResponse,
-                            EvaluateRequest)
+from backend.models import (BlankSheetsRequest, BulkEvaluateRequest, LoginRequest,
+                            LoginResponse, EvaluateRequest)
 from backend.auth import get_current_user, User, authenticate_user, create_access_token
 
 
@@ -266,6 +266,38 @@ def bulk_evaluate(req: BulkEvaluateRequest, current: User = Depends(get_current_
             "total_sales": sum(r["total_sales"] for r in results),
         },
     }
+
+
+@app.post("/api/admin/bulk/blank-sheets")
+def bulk_blank_sheets(req: BlankSheetsRequest, current: User = Depends(get_current_user)):
+    """시트가 없는 법인들의 빈 시트를 담은 엑셀. 통합본에 그대로 복사해 넣을 수 있다."""
+    if not current.is_admin:
+        raise HTTPException(status_code=403, detail="관리자 권한 필요")
+    ds = _dataset_or_400(req.year)
+    unknown = [c for c in req.companies if c not in ds.sizes]
+    if unknown:
+        raise HTTPException(status_code=400,
+                            detail=f"{ds.year}년 데이터에 없는 법인입니다: {', '.join(unknown[:5])}")
+    if not req.companies:
+        raise HTTPException(status_code=400, detail="법인을 하나 이상 지정하세요.")
+    if len(req.companies) > MAX_BULK_COMPANIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"한 번에 만들 수 있는 시트는 {MAX_BULK_COMPANIES}개까지입니다.")
+
+    content = bulk_import.build_blank_sheets(req.companies, company_list(ds.year),
+                                             ds.sizes, ds.as_of)
+    korean = urllib.parse.quote(f"통합본_빈시트_{ds.year}.xlsx")
+    return Response(
+        content=content,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={
+            "Content-Disposition": (
+                "attachment; filename=bulk_blank_sheets.xlsx; "
+                f"filename*=UTF-8''{korean}"
+            )
+        },
+    )
 
 
 # Serve frontend static files in development: mount after API routes so /api/* takes precedence

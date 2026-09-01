@@ -1318,6 +1318,10 @@ function renderBulk(){
     ${missing.length ? `<section class="report-section"><h3>통합본에 시트가 없는 법인 (${missing.length}곳)</h3>
       <div class="hint">${missing.map(m => escapeHtml(m)).join(' · ')}</div>
       <div class="hint">판정 대상인데 자료가 안 온 곳입니다. 미제출인지 판정 대상이 아닌지 확인하세요.</div>
+      <div class="import-actions">
+        <button type="button" id="blank-sheets" class="secondary">빈 시트 양식 내려받기 (${missing.length}곳)</button>
+        <span class="hint">기존 시트와 같은 서식입니다. 통합본에 복사해 넣거나, 채운 뒤 그대로 올려도 됩니다.</span>
+      </div>
     </section>` : ''}
 
     <div id="bulk-results"></div>
@@ -1480,6 +1484,39 @@ function sortedResults(results){
     return gb - ga
   })
 }
+
+document.addEventListener('click', async (e)=>{
+  if(!e.target || e.target.id !== 'blank-sheets' || !bulkParsed) return
+  const btn = e.target
+  const missing = bulkParsed.missing_companies || []
+  btn.disabled = true
+  const label = btn.textContent
+  btn.textContent = '만드는 중…'
+  try{
+    // 파일 응답이라 post() 를 못 쓴다(그쪽은 JSON 을 기대한다).
+    const res = await fetch('/api/admin/bulk/blank-sheets', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', ...(token ? {Authorization: 'Bearer ' + token} : {})},
+      body: JSON.stringify({year: bulkParsed.year, companies: missing}),
+    })
+    if(!res.ok){
+      const j = await res.json().catch(()=> null)
+      throw new Error((j && j.detail) || `서버 오류 (${res.status})`)
+    }
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = `통합본_빈시트_${bulkParsed.year}.xlsx`
+    document.body.appendChild(a); a.click(); a.remove()
+    URL.revokeObjectURL(url)
+  }catch(err){
+    const box = $('bulk-error')
+    if(box) box.textContent = err.message || '빈 시트를 만들지 못했습니다'
+  }finally{
+    btn.disabled = false
+    btn.textContent = label
+  }
+})
 
 document.addEventListener('click', (e)=>{
   if(!e.target || e.target.id !== 'bulk-csv' || !bulkResults) return
