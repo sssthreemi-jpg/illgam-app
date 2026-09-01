@@ -278,6 +278,10 @@
   .tag.warn{background:var(--warn-s,#FFF7E6);color:var(--warn,#B4690E)}
   .tag.mute{background:var(--bd2);color:var(--t2)}
   .table-wrap{max-height:560px;overflow:auto;border-radius:10px}
+  /* 금액 열을 nowrap 으로 둔 뒤로 법인 열이 짓눌려 이름이 한 글자씩 세로로 접혔다.
+     표에 최소 너비를 줘서 칸을 줄이는 대신 가로 스크롤이 생기게 한다. */
+  .bulk-table{min-width:1180px}
+  .bulk-table td:nth-child(2){word-break:keep-all}
   .row-note{font-size:11.5px;color:var(--t3);margin-top:2px;line-height:1.5}
 
   /* ── 로그인 ── */

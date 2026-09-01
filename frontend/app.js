@@ -1233,7 +1233,11 @@ function renderBulk(){
     return
   }
   const p = bulkParsed
-  const rows = p.sheets.map((s, i)=>{
+  // 법인 시트가 아닌 것(요약·분류·보고)은 표에서 뺀다. 사람이 손댈 것이 없다.
+  // 원본 순번(i)은 유지해야 한다 — data-sheet-index 로 bulkParsed.sheets 를 되짚기 때문에
+  // 걸러낸 뒤 다시 번호를 매기면 선택한 법인과 계산되는 법인이 어긋난다.
+  const visible = p.sheets.map((s, i) => ({s, i})).filter(x => x.s.status !== '건너뜀')
+  const rows = visible.map(({s, i})=>{
     // 매출이 없거나 법인 시트가 아닌 것은 고를 필요가 없다.
     const selectable = s.status === 'ok' || s.status === '확인필요'
     const tax = bulkTaxInputs[s.company]
@@ -1256,6 +1260,7 @@ function renderBulk(){
         : '<span class="muted">—</span>'}</td>
     </tr>`
   }).join('')
+  const hiddenCount = p.sheets.length - visible.length
 
   const missing = p.missing_companies || []
   el.innerHTML = `
@@ -1276,11 +1281,12 @@ function renderBulk(){
     </div>
 
     <div class="table-wrap">
-      <table class="wide-table">
+      <table class="wide-table bulk-table">
         <thead><tr>
-          <th style="width:34px"></th><th>법인</th><th>상태</th><th class="amount">총매출</th>
+          <th style="width:34px"></th><th style="min-width:150px">법인</th>
+          <th style="min-width:88px">상태</th><th class="amount">총매출</th>
           <th class="amount">영업이익</th><th class="amount">특수관계자 매출</th><th class="amount">해외매출</th>
-          <th class="amount" style="width:130px">법인세 상당액</th><th style="width:280px">확인 사항</th>
+          <th class="amount" style="width:130px">법인세 상당액</th><th style="min-width:260px">확인 사항</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
@@ -1291,6 +1297,9 @@ function renderBulk(){
       <button type="button" id="bulk-pick-all" class="secondary">전체 선택</button>
       <span class="hint">서버는 파일도 입력값도 저장하지 않습니다. 새로고침하면 다시 올려야 합니다.</span>
     </div>
+    ${hiddenCount ? `<div class="hint">법인 시트가 아닌 ${hiddenCount}개 시트(${
+      p.sheets.filter(s => s.status === '건너뜀').map(s => escapeHtml(s.sheet)).join(', ')
+    })는 표에서 뺐습니다.</div>` : ''}
     <div id="bulk-error" class="form-error"></div>
 
     ${missing.length ? `<section class="report-section"><h3>통합본에 시트가 없는 법인 (${missing.length}곳)</h3>
