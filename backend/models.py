@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 
 class LoginRequest(BaseModel):
@@ -34,3 +34,20 @@ class EvaluateRequest(BaseModel):
     # 수혜법인의 연도말 배당가능이익. 안 주면 공제 없이 계산한다.
     dividend_income: Optional[Dict[str, int]] = None
     distributable_income: int = 0
+
+
+class BulkCompanyInput(BaseModel):
+    """통합본 한 법인분. 화면에서 법인세를 채워 넣은 뒤 그대로 되돌아온다."""
+    company: str
+    operating_income: int
+    corporate_tax: int = 0
+    total_sales: int
+    related_sales: Optional[Dict[str, int]] = None
+    article10_exclusions: Optional[Dict[str, int]] = None
+    tax_adjustments: Optional[Dict[str, int]] = None
+
+
+class BulkEvaluateRequest(BaseModel):
+    # 연도는 요청 전체에 하나다. 법인마다 다른 연도로 섞으면 종합표가 의미를 잃는다.
+    year: Optional[str] = None
+    companies: List[BulkCompanyInput]

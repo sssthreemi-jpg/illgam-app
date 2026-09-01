@@ -9,9 +9,10 @@ import urllib.parse
 
 # SIZES 등 데이터 전역은 calc.load_data() 가 다시 바인딩하므로 이름을 직접 import 하지 않고
 # 모듈을 통해 참조한다(테스트가 fixture 데이터로 갈아끼울 수 있어야 한다).
-from backend import calc, excel_import
+from backend import bulk_import, calc, excel_import
 from backend.calc import evaluate, evaluate_admin_review, company_list
-from backend.models import LoginRequest, LoginResponse, EvaluateRequest
+from backend.models import (BulkEvaluateRequest, LoginRequest, LoginResponse,
+                            EvaluateRequest)
 from backend.auth import get_current_user, User, authenticate_user, create_access_token
 
 
@@ -187,6 +188,84 @@ def admin_summary(year: str = None, current: User = Depends(get_current_user)):
         r = evaluate(c, 0, 0, 0, {}, year=ds.year)
         out.append({"company": c, "taxable": r["taxable"], "gift_tax_total": r["gift_tax_total"]})
     return {"summary": out, "year": ds.year}
+
+
+# 통합본 일괄 판정 --------------------------------------------------------------
+# 파싱과 계산을 일부러 두 단계로 나눴다. 파일에 법인세가 없고 총매출이 아직
+# 임시값인 법인이 섞여 있어서, 사용자가 표를 확인·보정한 뒤에 계산해야 한다.
+# 서버는 어느 단계에서도 아무것도 저장하지 않는다.
+
+# 한 번에 판정할 수 있는 법인 수. 통합본은 계열 법인 수만큼이라 넉넉하다.
+MAX_BULK_COMPANIES = 300
+
+
+@app.post("/api/admin/bulk/parse")
+async def bulk_parse(
+    file: UploadFile = File(...),
+    year: str = None,
+    current: User = Depends(get_current_user),
+):
+    """통합본(법인=시트) 엑셀을 법인별 판정 입력으로 바꾼다. 계산도 저장도 하지 않는다."""
+    if not current.is_admin:
+        raise HTTPException(status_code=403, detail="관리자 권한 필요")
+    ds = _dataset_or_400(year)
+    content = await file.read()
+    try:
+        out = bulk_import.parse_workbook(content, file.filename or "",
+                                         company_list(ds.year), ds.sizes)
+    except ValueError as e:
+        # 파싱 실패는 사용자가 고칠 수 있는 문제다. 그대로 문구를 전달한다.
+        raise HTTPException(status_code=400, detail=str(e))
+    out["year"] = ds.year
+    out["data_as_of"] = ds.as_of
+    return out
+
+
+@app.post("/api/admin/bulk/evaluate")
+def bulk_evaluate(req: BulkEvaluateRequest, current: User = Depends(get_current_user)):
+    """법인별 입력을 한 번에 판정해 종합표를 돌려준다."""
+    if not current.is_admin:
+        raise HTTPException(status_code=403, detail="관리자 권한 필요")
+    ds = _dataset_or_400(req.year)
+    if len(req.companies) > MAX_BULK_COMPANIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"한 번에 판정할 수 있는 법인은 {MAX_BULK_COMPANIES}개까지입니다.")
+
+    results = []
+    failed = []
+    for item in req.companies:
+        if item.company not in ds.sizes:
+            # 한 법인이 틀렸다고 전체를 400 으로 되돌리지 않는다. 나머지는 계산해 주고
+            # 어느 법인이 왜 빠졌는지 함께 알린다.
+            failed.append({"company": item.company,
+                           "detail": f"{ds.year}년 데이터에 없는 법인입니다."})
+            continue
+        try:
+            results.append(evaluate(
+                item.company, item.operating_income, item.corporate_tax,
+                item.total_sales, item.related_sales,
+                tax_adjustments=item.tax_adjustments, year=ds.year,
+                article10_exclusions=item.article10_exclusions))
+        except ValueError as e:
+            failed.append({"company": item.company, "detail": str(e)})
+
+    taxable = [r for r in results if r["taxable"]]
+    return {
+        "year": ds.year,
+        "data_as_of": ds.as_of,
+        "results": results,
+        "failed": failed,
+        "totals": {
+            "evaluated": len(results),
+            "taxable_count": len(taxable),
+            "deemed_gift_total": sum(r["deemed_gift_total"] for r in results),
+            "gift_tax_total": sum(r["gift_tax_total"] for r in results),
+            "gift_tax_payable_total": sum(r["gift_tax_payable_total"] for r in results),
+            "related_sales_total": sum(r["related_sales_total"] for r in results),
+            "total_sales": sum(r["total_sales"] for r in results),
+        },
+    }
 
 
 # Serve frontend static files in development: mount after API routes so /api/* takes precedence
