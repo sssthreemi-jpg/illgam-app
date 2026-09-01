@@ -1221,6 +1221,7 @@ const BULK_STATUS_TAG = {
   '확인필요': '<span class="tag warn">확인 필요</span>',
   '입력대기': '<span class="tag mute">입력 대기</span>',
   '미매칭': '<span class="tag bad">법인 미매칭</span>',
+  '건너뜀': '<span class="tag mute">법인 시트 아님</span>',
 }
 
 function renderBulk(){
@@ -1260,6 +1261,7 @@ function renderBulk(){
       ${tile('읽은 시트', p.stats.sheets_read, escapeHtml(p.filename || ''))}
       ${tile('판정 가능', p.stats.ready, `${p.year}년 데이터 기준`, 'ok')}
       ${tile('보류', p.stats.pending, '입력 대기·확인 필요')}
+      ${tile('법인 시트 아님', p.stats.skipped || 0, '요약·분류 시트 등')}
       ${tile('시트 없음', p.stats.missing, '통합본에 시트가 없는 법인')}
     </div>
 
@@ -1473,7 +1475,8 @@ function renderDashboard(){
   const evaluated = new Set(results.map(r => r.company))
   // 시트는 있는데 이번 합계에 안 들어간 법인. 상태로 거르면 '확인필요'인데 선택을
   // 해제한 법인이 어디에도 안 잡혀 조용히 사라진다 — 판정된 곳의 여집합으로 잡는다.
-  const pending = (parsed.sheets || []).filter(s => !evaluated.has(s.company))
+  const pending = (parsed.sheets || [])
+    .filter(s => s.status !== '건너뜀' && !evaluated.has(s.company))
   // '확인필요'인데도 판정에 넣은 법인. 총매출이 임시값이면 비율이 터무니없어지고
   // 그 결과가 '해당없음'으로 조용히 표시된다 — 그대로 믿으면 안 된다.
   const shaky = (parsed.sheets || []).filter(s => s.status === '확인필요' && evaluated.has(s.company))

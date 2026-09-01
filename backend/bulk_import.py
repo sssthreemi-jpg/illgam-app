@@ -271,13 +271,22 @@ def _parse_sheet(title, rows, lookup, sizes) -> dict:
 
     # 규모는 앱 데이터가 정본이다. 엑셀 표기('일반기업','대기업','중소기업')는 참고만 한다.
     size_app = sizes.get(company) if company else None
+    # 기업구분 칸이 비었거나 0 인 시트가 있다. 그건 '다르다'가 아니라 '안 적혔다' 이므로
+    # 경고를 띄우면 진짜 불일치(대웅바이오: 엑셀 대기업 vs 서버 일반)가 묻힌다.
+    size_written = bool(size_excel) and parse_amount(size_excel) is None
     size_mismatch = bool(
-        company and size_excel and size_app
+        company and size_written and size_app
         and not normalize_name(size_excel).startswith(normalize_name(size_app))
     )
 
     status = "ok"
-    if company is None:
+    if company is None and cols is None:
+        # 매출 상세표도 없고 법인도 못 맞춘 시트. 통합본에는 '특관매출 요약', '기업분류',
+        # '0. 보고' 처럼 법인 시트가 아닌 것이 섞여 있다. 이런 시트까지 '미매칭'으로
+        # 세면 진짜 확인이 필요한 법인이 그 안에 묻힌다.
+        status = "건너뜀"
+        warnings = ["법인 시트가 아닙니다(매출 상세표가 없습니다). 판정에서 제외합니다."]
+    elif company is None:
         status = "미매칭"
         warnings.append(
             "서버 법인 목록에서 찾지 못한 이름입니다: " + (_text(raw_name) or title)
@@ -409,7 +418,8 @@ def parse_workbook(content: bytes, filename: str, companies: List[str],
         "stats": {
             "sheets_read": len(sheets),
             "ready": sum(1 for s in sheets if s["status"] == "ok"),
-            "pending": sum(1 for s in sheets if s["status"] != "ok"),
+            "pending": sum(1 for s in sheets if s["status"] not in ("ok", "건너뜀")),
+            "skipped": sum(1 for s in sheets if s["status"] == "건너뜀"),
             "missing": len(missing),
         },
     }

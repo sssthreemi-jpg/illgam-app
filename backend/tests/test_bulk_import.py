@@ -334,3 +334,41 @@ def test_bulk_evaluate_rejects_unknown_year(fixture_data):
             "companies": [{"company": SUBJECT, "operating_income": 0, "total_sales": 0}]}
     assert client.post("/api/admin/bulk/evaluate", json=body,
                        headers=_admin()).status_code == 400
+
+
+def test_non_company_sheets_are_skipped_not_flagged(fixture_data):
+    """요약·분류 시트는 '미매칭'이 아니라 '건너뜀'이다.
+
+    실제 통합본에는 '특관매출 요약', '기업분류', '0. 보고' 같은 시트가 섞여 있다.
+    이걸 미매칭으로 세면 진짜 확인이 필요한 법인이 그 안에 묻힌다.
+    """
+    def build(wb):
+        _sheet(wb.create_sheet("가나"), name=SUBJECT, size="일반",
+               total=10_000_000_000, income=1_000_000_000, rows=[])
+        summary = wb.create_sheet("특관매출 요약")
+        summary["B2"] = "특관매출 요약"
+        summary["B4"] = "법인별 집계"
+        summary["C4"] = 12345
+
+    parsed = _parse(_workbook(build), fixture_data)
+    skipped = _by_sheet(parsed, "특관매출 요약")
+    assert skipped["status"] == "건너뜀"
+    assert parsed["stats"]["skipped"] == 1
+    # 보류로 세면 안 된다 — 사람이 손볼 것이 없는 시트다.
+    assert parsed["stats"]["pending"] == 0
+    assert parsed["stats"]["ready"] == 1
+
+
+def test_blank_size_cell_is_not_a_mismatch(fixture_data):
+    """기업구분 칸이 0/빈칸이면 '다르다'가 아니라 '안 적혔다'다.
+
+    매번 경고를 띄우면 진짜 불일치(엑셀 '대기업' vs 서버 '일반')가 묻힌다.
+    """
+    def build(wb):
+        _sheet(wb.create_sheet("빈칸"), name=SUBJECT, size=0,
+               total=10_000_000_000, income=1_000_000_000, rows=[])
+
+    s = _by_sheet(_parse(_workbook(build), fixture_data), "빈칸")
+    assert s["size_mismatch"] is False
+    assert not any("기업구분" in w for w in s["warnings"])
+    assert s["size_app"] == "일반"      # 계산은 서버 값으로 한다
