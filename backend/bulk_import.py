@@ -48,9 +48,16 @@ FIELD_LABELS = {
     "size": ("기업구분", "기업규모", "규모"),
     "total_sales": ("총매출액", "총매출", "매출액계", "매출총액"),
     "operating_income": ("영업이익",),
-    # 통합본 원본에는 없다. 나중에 양식에 추가되면 이 라벨로 자동으로 읽힌다.
+    # 아래 둘은 통합본 원본에 없다. 나중에 양식에 추가되면 이 라벨로 자동으로 읽힌다.
     "corporate_tax": ("법인세상당액", "법인세"),
+    # 세무조정은 합계만 있으면 된다 — calc._after_tax_base 가 항목별 값을 합쳐 쓴다.
+    "tax_adjustment": ("세무조정합계", "세무조정금액", "세무조정"),
 }
+
+# 부분일치로 라벨을 찾을 때 이 길이를 넘는 셀은 라벨로 보지 않는다.
+# 상세표 옆에 'List에 없는 특수관계자 매출 내역은 ... (법인세 서식 52호 기준)' 같은
+# 안내 문단이 있는데, '법인세' 가 그 안에 들어 있어 법인세 라벨로 잡힌다.
+MAX_LABEL_LEN = 20
 
 # 상세표 헤더. '해외매출' 을 '매출액' 보다 먼저 봐야 한다 —
 # 실제 헤더가 '매출액 중 해외매출(L/C, 내국신용장 등)' 이라 '매출액' 으로도 걸린다.
@@ -89,6 +96,8 @@ def _find_label(rows, labels) -> Optional[tuple]:
                 key = _squash(cell)
                 if not key:
                     continue
+                if not exact and len(key) > MAX_LABEL_LEN:
+                    continue      # 안내 문단은 라벨이 아니다
                 for label in squashed:
                     if (key == label) if exact else (label in key):
                         return i, j
@@ -241,6 +250,7 @@ def _parse_sheet(title, rows, lookup, sizes) -> dict:
     total_sales, total_raw = money("total_sales")
     operating_income, income_raw = money("operating_income")
     corporate_tax, _ = money("corporate_tax")
+    tax_adjustment, _ = money("tax_adjustment")
 
     entries = _read_detail(rows, cols) if cols else []
     factor = _annualize_factor(entries)
@@ -346,6 +356,8 @@ def _parse_sheet(title, rows, lookup, sizes) -> dict:
         "total_sales": total_sales,
         "operating_income": operating_income,
         "corporate_tax": corporate_tax,
+        # 가산은 양수, 차감은 음수. 파일에 없으면 None 이고 화면에서 입력받는다.
+        "tax_adjustment": tax_adjustment,
         "annualize_factor": factor,
         "related_sales": related,
         "article10_exclusions": article10,

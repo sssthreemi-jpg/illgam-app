@@ -419,3 +419,43 @@ def test_zero_total_with_related_sales_is_flagged(fixture_data):
     assert parsed["stats"]["no_sales"] == 0
     assert parsed["stats"]["pending"] == 1
     assert any("총매출이 0" in w for w in s["warnings"])
+
+
+def test_long_instruction_text_is_not_read_as_a_label(fixture_data):
+    """상세표 옆 안내 문단을 라벨로 잡으면 안 된다.
+
+    실제 통합본에는 'List에 없는 특수관계자 매출 내역은 ... (법인세 서식 52호 기준)'
+    이라는 문단이 있다. '법인세' 가 그 안에 들어 있어 부분일치로 법인세 라벨이 되고,
+    그 오른쪽 아무 숫자나 법인세 상당액으로 읽힐 수 있다.
+    """
+    def build(wb):
+        ws = wb.create_sheet("안내문")
+        _sheet(ws, name=SUBJECT, size="일반", total=10_000_000_000, income=1_000_000_000,
+               rows=[(COUNTERPARTY, 500_000_000, 0, 1)])
+        ws.cell(row=11, column=9,
+                value="List에 없는 특수관계자 매출 내역은 특수관계자 추가해서 "
+                      "작성 부탁드립니다. (법인세 서식 52호 기준)")
+        ws.cell(row=11, column=10, value=999_999_999)
+
+    s = _by_sheet(_parse(_workbook(build), fixture_data), "안내문")
+    assert s["corporate_tax"] is None, "안내 문단 옆 숫자를 법인세로 읽었다"
+    assert any("법인세" in w for w in s["warnings"])
+
+
+def test_tax_adjustment_read_when_present(fixture_data):
+    """세무조정은 지금 양식에 없다. 나중에 생기면 코드 수정 없이 읽혀야 한다."""
+    def build(wb):
+        ws = wb.create_sheet("조정")
+        _sheet(ws, name=SUBJECT, size="일반", total=10_000_000_000, income=1_000_000_000,
+               rows=[], tax=200_000_000)
+        # 차감 조정은 음수로 적힌다.
+        ws.cell(row=7, column=4, value="세무조정 합계")
+        ws.cell(row=7, column=7, value=-3_500_000)
+
+    parsed = _parse(_workbook(build), fixture_data)
+    assert _by_sheet(parsed, "조정")["tax_adjustment"] == -3_500_000
+    # 없는 시트는 None 이고, 화면에서 입력받는다.
+    def build2(wb):
+        _sheet(wb.create_sheet("없음"), name=SUBJECT, size="일반",
+               total=10_000_000_000, income=1_000_000_000, rows=[])
+    assert _by_sheet(_parse(_workbook(build2), fixture_data), "없음")["tax_adjustment"] is None

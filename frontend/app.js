@@ -1184,7 +1184,8 @@ async function runCompare(){
 
 let bulkParsed = null
 let bulkResults = null
-let bulkTaxInputs = {}   // {법인: 법인세}
+let bulkTaxInputs = {}    // {법인: 법인세 상당액}
+let bulkAdjInputs = {}    // {법인: 세무조정 합계} — 가산 양수, 차감 음수
 
 $('bulk-upload-button')?.addEventListener('click', ()=> $('bulk-upload-input')?.click())
 
@@ -1208,8 +1209,13 @@ $('bulk-upload-input')?.addEventListener('change', async (e)=>{
     bulkParsed.filename = file.name
     bulkResults = null
     bulkTaxInputs = {}
-    // 파일에 법인세가 있으면 그 값으로 시작한다.
-    data.sheets.forEach(s => { if(s.company && s.corporate_tax != null) bulkTaxInputs[s.company] = s.corporate_tax })
+    bulkAdjInputs = {}
+    // 파일에 값이 있으면 그 값으로 시작한다(지금 양식에는 둘 다 없다).
+    data.sheets.forEach(s => {
+      if(!s.company) return
+      if(s.corporate_tax != null) bulkTaxInputs[s.company] = s.corporate_tax
+      if(s.tax_adjustment != null) bulkAdjInputs[s.company] = s.tax_adjustment
+    })
     renderBulk()
   }catch(err){
     el.innerHTML = `<div class="import-report error">${escapeHtml(err.message || '파일을 읽지 못했습니다')}</div>`
@@ -1241,6 +1247,7 @@ function renderBulk(){
     // 매출이 없거나 법인 시트가 아닌 것은 고를 필요가 없다.
     const selectable = s.status === 'ok' || s.status === '확인필요'
     const tax = bulkTaxInputs[s.company]
+    const adj = bulkAdjInputs[s.company]
     return `<tr data-sheet-index="${i}">
       <td>${selectable ? `<input type="checkbox" class="bulk-pick" ${s.status === 'ok' ? 'checked' : ''} style="min-height:0;width:auto">` : ''}</td>
       <td><strong>${escapeHtml(s.company || s.excel_name)}</strong>
@@ -1252,6 +1259,9 @@ function renderBulk(){
       <td class="amount">${s.foreign_sales_total
         ? `<span class="muted">${formatNum(s.foreign_sales_total)}원</span><div class="row-note">위 매출에서 이미 차감됨</div>`
         : '<span class="muted">0원</span>'}</td>
+      <td class="amount">${selectable
+        ? `<input type="number" class="bulk-adj" data-company="${escapeHtml(s.company)}" value="${adj != null ? adj : 0}">`
+        : '<span class="muted">—</span>'}</td>
       <td class="amount">${selectable
         ? `<input type="number" min="0" class="bulk-tax" data-company="${escapeHtml(s.company)}" value="${tax != null ? tax : 0}">`
         : '<span class="muted">—</span>'}</td>
@@ -1276,8 +1286,9 @@ function renderBulk(){
     ${(p.warnings || []).length ? `<div class="report-notice"><strong>파일 전체 안내</strong><ul>${p.warnings.map(w => `<li>${escapeHtml(w)}</li>`).join('')}</ul></div>` : ''}
 
     <div class="report-notice">
-      <strong>법인세 상당액을 확인하세요</strong>
-      통합본에는 법인세 항목이 없습니다. 0 으로 두면 세후영업이익이 그만큼 커져 <b>세액이 과대 계산</b>됩니다.
+      <strong>세무조정 합계와 법인세 상당액을 확인하세요</strong>
+      통합본에는 두 항목이 모두 없습니다. 0 으로 두면 세후영업이익이 그만큼 커져 <b>세액이 과대 계산</b>됩니다.
+      <div>세후영업이익 = 영업이익 ± 세무조정 합계 − 법인세 상당액. <b>세무조정은 가산이 양수, 차감이 음수</b>입니다(예: -3500000).</div>
     </div>
 
     <div class="table-wrap">
@@ -1286,6 +1297,7 @@ function renderBulk(){
           <th style="width:34px"></th><th style="min-width:150px">법인</th>
           <th style="min-width:88px">상태</th><th class="amount">총매출</th>
           <th class="amount">영업이익</th><th class="amount">특수관계자 매출</th><th class="amount">해외매출</th>
+          <th class="amount" style="width:130px">세무조정 합계</th>
           <th class="amount" style="width:130px">법인세 상당액</th><th style="min-width:260px">확인 사항</th>
         </tr></thead>
         <tbody>${rows}</tbody>
@@ -1315,8 +1327,13 @@ function renderBulk(){
 }
 
 document.addEventListener('input', (e)=>{
-  if(e.target && e.target.classList.contains('bulk-tax')){
+  if(!e.target) return
+  if(e.target.classList.contains('bulk-tax')){
     bulkTaxInputs[e.target.dataset.company] = Math.max(0, Math.round(Number(e.target.value) || 0))
+  }
+  // 세무조정은 차감이 음수라 0 으로 깎으면 안 된다.
+  if(e.target.classList.contains('bulk-adj')){
+    bulkAdjInputs[e.target.dataset.company] = Math.round(Number(e.target.value) || 0)
   }
 })
 
@@ -1371,6 +1388,8 @@ async function runBulkEvaluate(){
       total_sales: s.total_sales || 0,
       operating_income: s.operating_income || 0,
       corporate_tax: Number(bulkTaxInputs[s.company] || 0),
+      // 서버는 항목별 값을 합쳐 쓰므로(calc._after_tax_base) 합계 하나면 된다.
+      tax_adjustments: {'세무조정 합계': Number(bulkAdjInputs[s.company] || 0)},
       related_sales: s.related_sales,
       article10_exclusions: s.article10_exclusions,
     })),
@@ -1379,6 +1398,7 @@ async function runBulkEvaluate(){
     bulkResults = await post('/api/admin/bulk/evaluate', body)
     // 법인세를 얼마로 넣고 돌렸는지 결과에 남긴다. 나중에 표를 다시 볼 때 필요하다.
     bulkResults.corporate_tax = {...bulkTaxInputs}
+    bulkResults.tax_adjustment = {...bulkAdjInputs}
     bulkResults.parsed = bulkParsed
     renderBulkResults()
     $('bulk-results')?.scrollIntoView({behavior: 'smooth', block: 'start'})
@@ -1464,11 +1484,13 @@ function sortedResults(results){
 document.addEventListener('click', (e)=>{
   if(!e.target || e.target.id !== 'bulk-csv' || !bulkResults) return
   const rows = [['법인', '기업구분', '연도', '판정', '판정비율', '정상거래비율', '총매출',
-                 '특수관계자매출', '제10항제외', '법인세상당액', '증여의제', '산출증여세', '납부증여세']]
+                 '특수관계자매출', '제10항제외', '세무조정합계', '법인세상당액',
+                 '증여의제', '산출증여세', '납부증여세']]
   sortedResults(bulkResults.results).forEach(r=>{
     rows.push([r.company, r.size, r.year, r.taxable ? '과세대상' : '해당없음',
                pctStr(r.taxation_ratio), pctStr(r.normal_ratio, 0), r.total_sales,
                r.related_sales_total, r.article10_total,
+               (bulkResults.tax_adjustment || {})[r.company] || 0,
                (bulkResults.corporate_tax || {})[r.company] || 0,
                r.deemed_gift_total, r.gift_tax_total, r.gift_tax_payable_total])
   })
