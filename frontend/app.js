@@ -1295,6 +1295,7 @@ function renderBulk(){
     <div class="btn-row">
       <button type="button" id="bulk-run">선택한 법인 일괄 판정</button>
       <button type="button" id="bulk-pick-all" class="secondary">전체 선택</button>
+      <span class="hint" id="bulk-pick-count"></span>
       <span class="hint">서버는 파일도 입력값도 저장하지 않습니다. 새로고침하면 다시 올려야 합니다.</span>
     </div>
     ${hiddenCount ? `<div class="hint">법인 시트가 아닌 ${hiddenCount}개 시트(${
@@ -1309,6 +1310,7 @@ function renderBulk(){
 
     <div id="bulk-results"></div>
   `
+  syncPickAll()
   if(bulkResults) renderBulkResults()
 }
 
@@ -1318,11 +1320,31 @@ document.addEventListener('input', (e)=>{
   }
 })
 
+document.addEventListener('change', (e)=>{
+  if(e.target && e.target.classList.contains('bulk-pick')) syncPickAll()
+})
+
+// 기본값이 '판정 가능 전부 선택' 이라, 버튼이 늘 '전체 선택' 이면 눌렀을 때
+// 오히려 전부 꺼진다. 지금 상태에 맞는 이름과 선택 개수를 같이 보여준다.
+function syncPickAll(){
+  const btn = $('bulk-pick-all')
+  const label = $('bulk-pick-count')
+  if(!btn) return
+  const boxes = Array.from(document.querySelectorAll('.bulk-pick'))
+  const picked = boxes.filter(b => b.checked).length
+  btn.textContent = (boxes.length && picked === boxes.length) ? '전체 해제' : '전체 선택'
+  btn.disabled = boxes.length === 0
+  if(label) label.textContent = boxes.length ? `${picked} / ${boxes.length}곳 선택됨` : ''
+}
+
 document.addEventListener('click', async (e)=>{
   if(e.target && e.target.id === 'bulk-pick-all'){
-    const boxes = document.querySelectorAll('.bulk-pick')
-    const allOn = Array.from(boxes).every(b => b.checked)
+    const boxes = Array.from(document.querySelectorAll('.bulk-pick'))
+    // 이미 전부 켜져 있으면 끄고, 아니면 켠다. 버튼 이름이 그때그때 바뀌므로
+    // '전체 선택'을 눌렀는데 전부 꺼지는 일은 없다.
+    const allOn = boxes.length > 0 && boxes.every(b => b.checked)
     boxes.forEach(b => { b.checked = !allOn })
+    syncPickAll()
     return
   }
   if(e.target && e.target.id === 'bulk-run') await runBulkEvaluate()
