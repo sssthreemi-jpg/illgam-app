@@ -47,8 +47,10 @@ $('login').onclick = async ()=>{
     $('login-overlay').style.display = 'none'
     $('app').style.display = 'block'
     await loadMyCompany()
-    $('nav').hidden = false
-    syncNav()
+    // 마크업이 낡은 브라우저 캐시로 들어오면 #nav 가 없다. 그때 여기서 터지면
+    // catch 가 token 을 지워버려, 화면은 로그인된 채로 인증만 풀린 상태가 된다.
+    const nav = $('nav')
+    if(nav){ nav.hidden = false; syncNav() }
     showPage('input-page')
   }catch(e){
     token = null
