@@ -792,13 +792,13 @@ function tile(label, value, sub, tone){
   </div>`
 }
 
-// 판정비율 하나를 문턱(정상거래비율)과 견주는 그림.
+// 판정비율 하나를 기준(정상거래비율)과 견주는 그림.
 // 축이 하나뿐이고, 막대 색은 과세/해당없음 상태만 나타내며 수치는 항상 글자로 같이 적는다.
 function meterHtml(actual, threshold, opts){
   const o = opts || {}
   const a = Number(actual) || 0
   const t = Number(threshold) || 0
-  // 문턱이 늘 눈에 보이도록 둘 중 큰 값에 여유를 둔 눈금을 쓴다.
+  // 기준이 늘 눈에 보이도록 둘 중 큰 값에 여유를 둔 눈금을 쓴다.
   const scale = Math.max(a, t) * 1.25 || 1
   const w = Math.max(0, Math.min(100, (a / scale) * 100))
   const tp = Math.max(0, Math.min(100, (t / scale) * 100))
@@ -871,10 +871,10 @@ function renderCriteria(){
   }).join('')
 
   const ratio = by.ratio || {}
-  // 문턱까지 얼마나 남았는지 / 얼마나 넘었는지. 실무에서 가장 먼저 보는 숫자다.
+  // 기준까지 얼마나 남았는지 / 얼마나 넘었는지. 실무에서 가장 먼저 보는 숫자다.
   const marginTile = ratio.passed
-    ? tile('문턱 초과분', pctStr(ratio.gap), '이만큼 낮춰야 문턱 아래로 내려갑니다', 'bad')
-    : tile('문턱까지 여유', pctStr(-(ratio.gap || 0)),
+    ? tile('기준 초과분', pctStr(ratio.gap), '이만큼 낮춰야 기준 아래로 내려갑니다', 'bad')
+    : tile('기준까지 여유', pctStr(-(ratio.gap || 0)),
            ratio.headroom !== null && ratio.headroom !== undefined
              ? `특수관계자 매출 ${formatNum(ratio.headroom)}원까지` : '', 'ok')
 
@@ -1085,7 +1085,7 @@ function renderSimOutput(r){
       <tr><th>판정 대상 매출</th><td class="amount">${formatNum(Number(r.related_sales_total || 0) - Number(r.article10_total || 0))}원</td></tr>
       <tr><th>판정비율</th><td class="amount">${pctStr(r.taxation_ratio)}</td></tr>
       <tr><th>정상거래비율</th><td class="amount">${pctStr(r.normal_ratio, 0)}</td></tr>
-      <tr><th>${ratio.passed ? '문턱 초과분' : '문턱까지 여유'}</th><td class="amount">${pctStr(Math.abs(ratio.gap || 0))}${(!ratio.passed && ratio.headroom != null) ? ` <span class="muted">(매출 ${formatNum(ratio.headroom)}원)</span>` : ''}</td></tr>
+      <tr><th>${ratio.passed ? '기준 초과분' : '기준까지 여유'}</th><td class="amount">${pctStr(Math.abs(ratio.gap || 0))}${(!ratio.passed && ratio.headroom != null) ? ` <span class="muted">(매출 ${formatNum(ratio.headroom)}원)</span>` : ''}</td></tr>
       <tr><th>증여의제 금액</th><td class="amount">${formatNum(r.deemed_gift_total)}원</td></tr>
       <tr><th>산출 증여세</th><td class="amount">${formatNum(r.gift_tax_total)}원</td></tr>
     </tbody></table>
@@ -1160,7 +1160,7 @@ async function runCompare(){
       <table class="wide-table">
         <thead><tr>
           <th>연도</th><th>기업구분</th><th class="amount">판정비율</th><th class="amount">정상거래비율</th>
-          <th class="amount">문턱 대비</th><th>판정</th><th class="amount">납부 증여세</th><th class="amount">기준연도 대비</th>
+          <th class="amount">기준 대비</th><th>판정</th><th class="amount">납부 증여세</th><th class="amount">기준연도 대비 세액</th>
         </tr></thead>
         <tbody>${body}</tbody>
       </table>
@@ -1169,7 +1169,7 @@ async function runCompare(){
       <strong>이 표가 보여주는 것</strong><br>
       ${escapeHtml(lastBody.company)}의 <strong>같은 재무수치</strong>를 연도별 지분율·기업규모·세율에 각각 통과시킨 결과입니다.
       연도 간 차이는 <strong>지분·규모·세율 변화</strong>에서만 옵니다.
-      ${changed ? '<br><strong>기업구분이 연도마다 다릅니다.</strong> 정상거래비율 문턱 자체가 달라지므로 비율만 비교하면 오해할 수 있습니다.' : ''}
+      ${changed ? '<br><strong>기업구분이 연도마다 다릅니다.</strong> 정상거래비율 기준 자체가 달라지므로 비율만 비교하면 오해할 수 있습니다.' : ''}
       <br>실제 연도별 매출·영업이익으로 비교하려면 입력 화면에서 연도를 바꿔 각각 검토하세요.
     </div>`
 }
@@ -1456,7 +1456,7 @@ function renderBulkResults(){
       <div class="table-wrap">
         <table class="wide-table">
           <thead><tr>
-            <th>법인</th><th>판정</th><th>판정비율 vs 정상거래비율</th><th class="amount">문턱 대비</th>
+            <th>법인</th><th>판정</th><th>판정비율 vs 정상거래비율</th><th class="amount">기준 대비</th>
             <th class="amount">총매출</th><th class="amount">특수관계자 매출</th>
             <th class="amount">증여의제</th><th class="amount">산출세액</th><th class="amount">납부세액</th>
           </tr></thead>
@@ -1474,7 +1474,7 @@ function renderBulkResults(){
     </section>`
 }
 
-// 납부세액이 큰 곳 먼저, 세액이 같으면 문턱에 가까운 곳 먼저.
+// 납부세액이 큰 곳 먼저, 세액이 같으면 기준에 가까운 곳 먼저.
 function sortedResults(results){
   return [...(results || [])].sort((a, b)=>{
     const d = Number(b.gift_tax_payable_total || 0) - Number(a.gift_tax_payable_total || 0)
@@ -1538,10 +1538,10 @@ document.addEventListener('click', (e)=>{
 // ═══════════════════════════════════════════════════════════════════════════
 // 5. 대시보드 (관리자)
 // ═══════════════════════════════════════════════════════════════════════════
-// 통합 판정 결과를 그대로 읽는다. 서버의 /api/admin/summary 는 입력값을 0 으로
+// 종합 판정 결과를 그대로 읽는다. 서버의 /api/admin/summary 는 입력값을 0 으로
 // 넣고 돌려서 늘 '해당없음'이 나온다 — 실제 매출·영업이익이 들어와야 의미가 있다.
 
-// 문턱까지 이만큼 이내면 '근접'으로 본다. 반기 데이터를 연환산한 값이라
+// 기준까지 이만큼 이내면 '기준 초과 가능성이 높다'로 본다. 반기 데이터를 연환산한 값이라
 // 연말에 뒤집힐 수 있는 구간이다.
 const NEAR_THRESHOLD = 0.05
 
@@ -1549,7 +1549,7 @@ function renderDashboard(){
   const el = $('dashboard-content')
   if(!el) return
   if(!bulkResults){
-    el.innerHTML = emptyBox('통합 판정을 먼저 실행하세요. 통합본을 올려 법인별로 판정하면 이 화면이 채워집니다.')
+    el.innerHTML = emptyBox('종합 판정을 먼저 실행하세요. 통합본을 올려 법인별로 판정하면 이 화면이 채워집니다.')
     return
   }
   const t = bulkResults.totals
@@ -1557,7 +1557,7 @@ function renderDashboard(){
   const parsed = bulkResults.parsed || {}
 
   const taxable = results.filter(r => r.taxable)
-  // 지금은 해당없음이지만 문턱에 가까운 곳. 연말 재검토가 필요한 목록이다.
+  // 지금은 해당없음이지만 기준을 초과할 가능성이 높은 곳. 연말 재검토가 필요한 목록이다.
   const near = results
     .filter(r => !r.taxable)
     .map(r => ({r, gap: -(((criteriaByKey(r).ratio || {}).gap) ?? -1)}))
@@ -1582,7 +1582,7 @@ function renderDashboard(){
       <td><strong>${escapeHtml(r.company)}</strong><div class="row-note">${escapeHtml(r.size || '')}</div></td>
       <td style="min-width:210px">${meterHtml(r.taxation_ratio, r.normal_ratio)}</td>
       <td class="amount"><strong>${pctStr(gap)}</strong><div class="row-note">남은 여유</div></td>
-      <td class="amount">${formatNum(((criteriaByKey(r).ratio || {}).headroom) || 0)}원<div class="row-note">이만큼 더 팔면 문턱</div></td>
+      <td class="amount">${formatNum(((criteriaByKey(r).ratio || {}).headroom) || 0)}원<div class="row-note">이만큼 더 팔면 기준 초과</div></td>
     </tr>`).join('')
 
   const taxableRows = sortedResults(taxable).map(r=>`
@@ -1601,7 +1601,7 @@ function renderDashboard(){
              taxable.length ? 'bad' : 'ok')}
       ${tile('납부 증여세 합계', formatNum(t.gift_tax_payable_total) + '원',
              `산출 ${formatNum(t.gift_tax_total)}원`, t.gift_tax_payable_total ? 'bad' : '')}
-      ${tile('문턱 근접', near.length + '곳', `여유 ${pctStr(NEAR_THRESHOLD, 0)} 이내`, near.length ? 'bad' : '')}
+      ${tile('기준 초과 가능성', near.length + '곳', `여유 ${pctStr(NEAR_THRESHOLD, 0)} 이내`, near.length ? 'bad' : '')}
       ${tile('그룹 특관매출 비율', pctStr(groupRatio), `총매출 ${formatNum(t.total_sales)}원`)}
     </div>
 
@@ -1627,18 +1627,18 @@ function renderDashboard(){
         : emptyBox('과세대상으로 판정된 법인이 없습니다.')}
     </section>
 
-    <section class="report-section"><h3>문턱 근접 — 연말 재검토 대상 (${near.length}곳)</h3>
+    <section class="report-section"><h3>기준 초과 가능성이 높은 법인 — 연말 재검토 대상 (${near.length}곳)</h3>
       ${near.length ? `<div class="table-wrap"><table class="wide-table">
           <thead><tr><th>법인</th><th>판정비율 vs 정상거래비율</th><th class="amount">여유</th>
-            <th class="amount">문턱까지 매출</th></tr></thead>
+            <th class="amount">기준까지 매출</th></tr></thead>
           <tbody>${nearRows}</tbody></table></div>
         <div class="hint">반기 실적을 연환산한 값이면 하반기 거래에 따라 뒤집힐 수 있습니다. 여유가 1%p 미만인 곳은 특히 그렇습니다.</div>`
-        : emptyBox(`정상거래비율 문턱 ${pctStr(NEAR_THRESHOLD, 0)} 이내로 근접한 법인이 없습니다.`)}
+        : emptyBox(`기준을 초과할 가능성이 높은 법인이 없습니다. 정상거래비율까지 여유가 ${pctStr(NEAR_THRESHOLD, 0)} 이내인 곳이 없습니다.`)}
     </section>
 
     <div class="report-note">
       <strong>이 화면의 출처</strong><br>
-      통합 판정에서 계산한 결과를 그대로 보여줍니다. 서버에 저장되지 않으므로 새로고침하면 통합본을 다시 올려야 합니다.
-      법인세 상당액은 통합 판정 화면에서 입력한 값이 쓰였습니다.
+      종합 판정에서 계산한 결과를 그대로 보여줍니다. 서버에 저장되지 않으므로 새로고침하면 통합본을 다시 올려야 합니다.
+      법인세 상당액은 종합 판정 화면에서 입력한 값이 쓰였습니다.
     </div>`
 }

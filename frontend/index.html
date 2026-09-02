@@ -209,8 +209,8 @@
   .tile.bad .tile-value{color:var(--bad)}
   .tile.ok .tile-value{color:var(--ok)}
 
-  /* ── 문턱 미터 ──
-     판정비율 하나를 정상거래비율(문턱)과 견주는 그림이다. 축이 하나뿐이고,
+  /* ── 기준 미터 ──
+     판정비율 하나를 정상거래비율(기준)과 견주는 그림이다. 축이 하나뿐이고,
      막대 색은 상태(과세/해당없음)만 나타내며 수치는 항상 글자로 함께 적는다. */
   .meter{min-width:190px}
   .meter-track{position:relative;height:8px;border-radius:999px;background:var(--bd2);overflow:hidden}
@@ -259,7 +259,7 @@
     font-variant-numeric:tabular-nums}
   @media(max-width:900px){ .sim-grid{grid-template-columns:1fr} }
 
-  /* ── 통합 판정 / 대시보드 표 ── */
+  /* ── 종합 판정 / 대시보드 표 ── */
   .wide-table{width:100%;border-collapse:collapse;border:1px solid var(--bd);border-radius:10px;
     overflow:hidden;background:#fff;font-size:13px}
   .wide-table th,.wide-table td{padding:9px 11px;border-bottom:1px solid var(--bd2);text-align:left;
@@ -365,7 +365,7 @@
       <button type="button" data-page="criteria-page" data-needs="result">판정 근거</button>
       <button type="button" data-page="simulate-page" data-needs="result">시뮬레이션</button>
       <button type="button" data-page="compare-page" data-needs="result">연도 비교</button>
-      <button type="button" data-page="bulk-page" data-admin>통합 판정</button>
+      <button type="button" data-page="bulk-page" data-admin>종합 판정</button>
       <button type="button" data-page="dashboard-page" data-admin>대시보드</button>
       <button type="button" data-page="rawdata-page" data-admin data-needs="result">RAWDATA</button>
     </nav>
@@ -585,7 +585,7 @@
       <div id="compare-content"></div>
     </section>
 
-    <!-- ── 통합 판정 (관리자) ── -->
+    <!-- ── 종합 판정 (관리자) ── -->
     <section id="bulk-page" class="page card" hidden>
       <div class="page-head">
         <div>
@@ -607,9 +607,9 @@
         <div>
           <div class="muted">관리자 전용</div>
           <h2>그룹 종합 현황</h2>
-          <div class="hint">통합 판정 결과를 한눈에 봅니다. 문턱에 가까운 법인을 먼저 보여줍니다.</div>
+          <div class="hint">종합 판정 결과를 한눈에 봅니다. 기준을 초과할 가능성이 높은 법인을 먼저 보여줍니다.</div>
         </div>
-        <button type="button" class="secondary" data-goto="bulk-page">통합 판정으로</button>
+        <button type="button" class="secondary" data-goto="bulk-page">종합 판정으로</button>
       </div>
       <div id="dashboard-content"></div>
     </section>
